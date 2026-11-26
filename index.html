@@ -28,6 +28,7 @@
   </div>
   <div class="doc-meter" id="docMeter" hidden>
     <span class="page-info" id="pageInfo">1 / 1쪽</span>
+    <button type="button" class="view-toggle" id="viewToggle" aria-pressed="false" title="한 쪽씩 보기">1쪽</button>
     <span class="dirty-dot" id="dirtyDot" hidden title="수정한 곳이 있습니다"></span>
   </div>
   <div class="actions">
@@ -67,6 +68,11 @@
 </main>
 
 <div class="fs-meter" id="fsMeter" hidden aria-hidden="true">1 / 1쪽</div>
+<nav class="page-nav" id="pageNav" hidden aria-label="쪽 넘기기">
+  <button type="button" id="pagePrev" aria-label="이전 쪽" title="이전 쪽">‹</button>
+  <span class="pn-count" id="pageNavCount">1 / 1쪽</span>
+  <button type="button" id="pageNext" aria-label="다음 쪽" title="다음 쪽">›</button>
+</nav>
 <div class="zoom-bar" id="zoomBar" hidden role="group" aria-label="문서 확대·축소">
   <button type="button" id="zoomOut" aria-label="축소" title="축소">−</button>
   <button type="button" id="zoomReset" aria-label="배율 100%로 되돌리기" title="100%로 되돌리기">100%</button>

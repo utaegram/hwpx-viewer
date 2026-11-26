@@ -26,6 +26,10 @@ html, body {
   font-size: 15px;
   line-height: 1.6;
   -webkit-text-size-adjust: 100%;
+  /* 모바일 브라우저·PWA 에서 맨 위에서 당겨도 페이지가 새로고침되지 않게 한다.
+     문서를 보던 중 손가락이 미끄러져 앱이 다시 로드되면 열어 둔 문서가 사라지기 때문이다. */
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
 }
 
 body { min-height: 100vh; }
@@ -86,6 +90,28 @@ body { min-height: 100vh; }
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--mark-line);
 }
+
+/* 연속 보기 ↔ 1쪽 보기 토글 (지금 누르면 바뀔 쪽을 이름으로 보여 준다) */
+.view-toggle {
+  appearance: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 9px;
+  margin-left: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.view-toggle:hover { border-color: #cfd5df; background: #f7f9fc; }
+.view-toggle.on { background: #eef3fe; border-color: #c9d8f8; color: var(--primary); }
 
 .actions { display: flex; align-items: center; gap: 6px; flex: none; }
 
@@ -182,6 +208,7 @@ main { padding: 22px 16px 64px; }
   /* 두 손가락 집기는 브라우저 기본 확대 대신 app.js 가 문서 배율로 받아 낸다. */
   touch-action: pan-x pan-y;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: contain;
 }
 
 .edit-hint {
@@ -225,6 +252,9 @@ body.mode-edit .edit-hint { display: block; }
   overflow-wrap: break-word;
 }
 .page > *:first-child { margin-top: 0; }
+
+/* 1쪽 보기에서 지금 쪽이 아닌 용지는 자리도 차지하지 않게 감춘다 */
+.page.is-hidden { display: none !important; }
 
 .page-foot {
   margin: 16px 0 0;
@@ -483,6 +513,59 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
   letter-spacing: .01em;
 }
 
+/* ---------- 쪽 넘김 막대 (1쪽 보기) ----------
+   한 쪽씩 볼 때는 왼쪽 아래에서 앞·뒤 쪽을 넘긴다. */
+.page-nav {
+  position: fixed;
+  left: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 27;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(24, 34, 50, .16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.page-nav button {
+  appearance: none;
+  font: inherit;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  width: 36px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .12s;
+}
+.page-nav button:active:not(:disabled) { background: #eef3fe; }
+.page-nav button:disabled { opacity: .28; cursor: default; }
+.page-nav .pn-count {
+  min-width: 62px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {
   .app-header { padding: 0 10px; gap: 8px; }
@@ -497,6 +580,9 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
   .doc-wrap { max-width: 100%; }
   .zoom-bar { right: 8px; }
   .zoom-bar button { width: 34px; height: 30px; }
+  .page-nav { left: 8px; }
+  .page-nav button { width: 34px; height: 30px; }
+  .page-nav .pn-count { min-width: 56px; font-size: 11px; }
   .replace-panel { padding: 8px 10px; gap: 8px; }
   .rp-field { min-width: 110px; flex: 1 1 120px; }
   .doc-meter { font-size: 11.5px; }
@@ -507,6 +593,7 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
   .brand { flex: 1 1 auto; overflow: hidden; }
   .fname { max-width: 30vw; font-size: 12.5px; }
   .doc-meter { order: 2; font-size: 11px; }
+  .view-toggle { padding: 4px 7px; font-size: 11px; }
   .actions { order: 3; }
   .actions .btn { padding: 6px 7px; font-size: 11.5px; }
   .page-foot { display: none; }

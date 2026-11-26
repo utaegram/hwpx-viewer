@@ -43,6 +43,8 @@
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
     toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
     zoomBar: $id('zoomBar'), zoomIn: $id('zoomIn'), zoomOut: $id('zoomOut'), zoomReset: $id('zoomReset'),
+    viewToggle: $id('viewToggle'), pageNav: $id('pageNav'), pagePrev: $id('pagePrev'),
+    pageNext: $id('pageNext'), pageNavCount: $id('pageNavCount'),
   };
 
   const emptyStyles = () => ({
@@ -64,6 +66,8 @@
     busy: false,
     fontPass: 0,
     userScale: 1,            // 사용자가 고른 문서 배율 (fitPages 축소 위에 한 겹 더)
+    pageMode: 'scroll',      // 'scroll' 연속 보기 · 'single' 1쪽 보기
+    currentPage: 1,          // 지금 보고 있는 쪽 (1부터)
   };
 
   /* ---------------- helpers ---------------- */
@@ -483,6 +487,112 @@
     } catch (e) { /* 글꼴을 못 받아도 기본 글꼴로 그린다 */ }
   }
 
+  /* ---------------- 마지막 문서 저장·복원 (IndexedDB) ----------------
+     앱을 닫았다 다시 열거나 실수로 새로고침해도 보던 문서가 그대로 열리도록, 연 파일의
+     바이트를 브라우저 안(hunmin-doc-db)에만 남긴다. 파일은 여전히 어디에도 전송되지 않는다. */
+  const DOC_DB = 'hunmin-doc-db';
+  const DOC_STORE = 'lastFile';
+  const DOC_KEY = 'last';
+  const MAX_SAVED_BYTES = 50 * 1024 * 1024;   // 50MB 가 넘으면 저장을 건너뛰고 앱은 그대로 쓴다
+  let restoringDoc = false;
+
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') { reject(new Error('IndexedDB 없음')); return; }
+      let req;
+      try {
+        req = indexedDB.open(DOC_DB, 1);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (db && !db.objectStoreNames.contains(DOC_STORE)) db.createObjectStore(DOC_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('IndexedDB 열기 실패'));
+      req.onblocked = () => reject(new Error('IndexedDB가 막혀 있음'));
+    });
+  }
+
+  async function saveLastDoc(name, buffer) {
+    try {
+      if (!name || !buffer || !buffer.byteLength) return false;
+      if (buffer.byteLength > MAX_SAVED_BYTES) return false;
+      const db = await idbOpen();
+      try {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(DOC_STORE, 'readwrite');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('저장 실패'));
+          tx.onabort = () => reject(tx.error || new Error('저장 취소'));
+          tx.objectStore(DOC_STORE).put({ name, buffer, savedAt: Date.now() }, DOC_KEY);
+        });
+      } finally {
+        db.close();
+      }
+      return true;
+    } catch (err) {
+      /* 저장 공간 부족·사생활 보호 모드 등 — 문서 열기는 그대로 계속한다 */
+      console.warn('마지막 문서를 저장하지 못했습니다', err);
+      return false;
+    }
+  }
+
+  async function loadLastDoc() {
+    try {
+      const db = await idbOpen();
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(DOC_STORE, 'readonly');
+          const req = tx.objectStore(DOC_STORE).get(DOC_KEY);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error || new Error('읽기 실패'));
+        });
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      console.warn('저장된 문서를 읽지 못했습니다', err);
+      return null;
+    }
+  }
+
+  async function clearLastDoc() {
+    try {
+      const db = await idbOpen();
+      try {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(DOC_STORE, 'readwrite');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('지우기 실패'));
+          tx.objectStore(DOC_STORE).delete(DOC_KEY);
+        });
+      } finally {
+        db.close();
+      }
+    } catch (err) { /* 지우지 못해도 앱은 그대로 */ }
+  }
+
+  /* 앱을 열 때: 저장된 문서가 있으면 드롭존 대신 그 문서를 다시 연다 */
+  async function restoreLastDoc() {
+    if (restoringDoc || state.zip) return;
+    restoringDoc = true;
+    try {
+      const rec = await loadLastDoc();
+      if (!rec || !rec.name || !rec.buffer || state.zip) return;
+      const bytes = rec.buffer instanceof ArrayBuffer ? rec.buffer : new Uint8Array(rec.buffer);
+      if (!bytes.byteLength) { await clearLastDoc(); return; }
+      const file = new File([bytes], rec.name, { type: MIMETYPE });
+      const ok = await openFile(file, { restored: true });
+      /* 다시 열 수 없는 파일이 영원히 되살아나지 않게 정리한다 */
+      if (!ok) await clearLastDoc();
+    } finally {
+      restoringDoc = false;
+    }
+  }
+
   /* ---------------- 파일 선택 ----------------
      브라우저 보안상 안드로이드 '내 파일' 앱의 탭을 직접 고를 수는 없지만, File System Access
      API 가 있는 곳에서는 startIn:'documents' 로 문서 폴더를 먼저 열고 .hwpx 문서만 보여 준다.
@@ -517,15 +627,15 @@
   }
 
   /* ---------------- opening a file ---------------- */
-  async function openFile(file) {
-    if (!file) return;
+  async function openFile(file, opts) {
+    if (!file) return false;
     if (typeof JSZip === 'undefined') {
       toast('JSZip 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.', true);
-      return;
+      return false;
     }
     if (!/\.hwpx$/i.test(file.name)) {
       toast('지원하지 않는 파일입니다. .hwpx 파일을 선택해 주세요.', true);
-      return;
+      return false;
     }
     ui.fileStatus.textContent = '여는 중…';
     try {
@@ -557,6 +667,7 @@
       state.dirtyNodes = new Set();
       state.nodeMap = new WeakMap();
       state.mode = 'read';
+      state.currentPage = 1;
 
       ui.fileName.textContent = file.name;
       ui.fileName.title = file.name;
@@ -583,12 +694,18 @@
       ui.docMeter.hidden = false;
       state.userScale = 1;
       applyUserScale();
-      toast(`${file.name} · ${sections.length}개 본문을 열었습니다`);
+      updateViewModeUi();
+      /* 다음에 열 때 그대로 되살아나도록 브라우저 안에 남긴다 (실패해도 앱은 그대로) */
+      saveLastDoc(file.name, buffer);
+      if (opts && opts.restored) toast(`마지막에 보던 문서를 다시 열었습니다 · ${file.name}`);
+      else toast(`${file.name} · ${sections.length}개 본문을 열었습니다`);
       window.scrollTo({ top: 0 });
+      return true;
     } catch (err) {
       console.error(err);
       ui.fileStatus.textContent = '읽기 전용 뷰어 · 100% 로컬 처리';
       toast('파일을 열지 못했습니다: ' + (err && err.message ? err.message : err), true);
+      return false;
     }
   }
 
@@ -623,7 +740,7 @@
     finalizePages();
     fitPages();
     updateStatus();
-    updatePageInfo();
+    applyViewMode();
     window.scrollTo({ top: scrollY });
   }
 
@@ -1140,6 +1257,95 @@
     pinchEndAt = Date.now();
     pinchAnchor = null;
     pinchTarget = null;
+  }
+
+  /* ---------------- 보기 방식: 연속 / 1쪽 ----------------
+     연속은 모든 쪽을 위아래로 이어 보여 주고(지금까지의 방식), 1쪽은 한 번에 한 쪽만 보여 준다.
+     고른 방식은 localStorage 에 남겨 다음에 열 때도 그대로 쓴다. */
+  const PAGE_MODE_KEY = 'hunmin-page-mode';
+  let lastPageFlipAt = 0;
+
+  function pageEls() {
+    return Array.from(ui.doc.querySelectorAll('.page'));
+  }
+
+  function loadPageMode() {
+    try {
+      return localStorage.getItem(PAGE_MODE_KEY) === 'single' ? 'single' : 'scroll';
+    } catch (err) {
+      return 'scroll';
+    }
+  }
+
+  function updateViewModeUi() {
+    const single = state.pageMode === 'single';
+    if (ui.viewToggle) {
+      /* 누르면 바뀔 쪽을 이름으로 보여 준다 (편집/읽기 단추와 같은 방식) */
+      ui.viewToggle.textContent = single ? '연속' : '1쪽';
+      ui.viewToggle.title = single ? '쪽을 이어서 보기' : '한 쪽씩 보기';
+      ui.viewToggle.setAttribute('aria-pressed', String(single));
+      ui.viewToggle.classList.toggle('on', single);
+    }
+    if (ui.pageNav) ui.pageNav.hidden = !(state.zip && single);
+    document.body.classList.toggle('view-single', single);
+  }
+
+  /* 1쪽 보기: 고른 쪽만 남기고 나머지 .page 는 감춘다 */
+  function showSinglePage(n, opts) {
+    const pages = pageEls();
+    if (!pages.length) return;
+    const idx = clamp(Math.round(n) || 1, 1, pages.length);
+    state.currentPage = idx;
+    pages.forEach((p, i) => p.classList.toggle('is-hidden', i !== idx - 1));
+    if (!opts || opts.scroll !== false) window.scrollTo({ top: 0, left: 0 });
+    updatePageInfo();
+  }
+
+  /* 문서를 그린 뒤(또는 보기 방식을 바꾼 뒤) 화면을 지금 보기 방식에 맞춘다 */
+  function applyViewMode() {
+    updateViewModeUi();
+    if (!state.zip) return;
+    if (state.pageMode === 'single') {
+      if (!pageEls().length) return;
+      showSinglePage(state.currentPage, { scroll: false });
+    } else {
+      pageEls().forEach((p) => p.classList.remove('is-hidden'));
+      updatePageInfo();
+    }
+  }
+
+  function setPageMode(mode) {
+    const next = mode === 'single' ? 'single' : 'scroll';
+    if (next === state.pageMode) return;
+    state.pageMode = next;
+    try { localStorage.setItem(PAGE_MODE_KEY, next); } catch (err) { /* 기억 못해도 그대로 동작 */ }
+    applyViewMode();
+    const pages = pageEls();
+    if (!pages.length) return;
+    if (next === 'scroll') {
+      /* 1쪽에서 보던 쪽으로 자연스럽게 이어 준다 */
+      const target = pages[clamp(state.currentPage, 1, pages.length) - 1];
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, left: 0 });
+    }
+    updatePageInfo();
+  }
+
+  /* 쪽 넘기기 — 1쪽 보기에서는 한 쪽씩 바꾸고, 연속 보기에서는 그 쪽으로 스크롤한다 */
+  function gotoPage(n) {
+    const pages = pageEls();
+    if (!pages.length) return;
+    const idx = clamp(Math.round(n) || 1, 1, pages.length);
+    if (state.pageMode === 'single') {
+      if (idx === state.currentPage) return;
+      lastPageFlipAt = Date.now();
+      showSinglePage(idx);
+    } else {
+      const target = pages[idx - 1];
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+      updatePageInfo();
+    }
   }
 
   /* ---------------- blocks ---------------- */
@@ -2165,20 +2371,31 @@
 
   /* 지금 보고 있는 쪽 표시 (1 / 5쪽) */
   function updatePageInfo() {
-    const pages = Array.from(ui.doc.querySelectorAll('.page'));
+    const pages = pageEls();
     if (!pages.length) { ui.docMeter.hidden = true; if (ui.fsMeter) ui.fsMeter.hidden = true; return; }
     ui.docMeter.hidden = false;
-    const header = document.querySelector('.app-header');
-    const line = (header ? header.getBoundingClientRect().bottom : 52) + 48;
     let cur = 1;
-    pages.forEach((p, i) => {
-      if (p.getBoundingClientRect().top <= line) cur = i + 1;
-    });
-    ui.pageInfo.textContent = `${cur} / ${pages.length}쪽`;
+    if (state.pageMode === 'single') {
+      /* 한 쪽씩 볼 때는 화면에 남은 한 쪽이 곧 지금 쪽이다 */
+      cur = clamp(state.currentPage, 1, pages.length);
+      state.currentPage = cur;
+    } else {
+      const header = document.querySelector('.app-header');
+      const line = (header ? header.getBoundingClientRect().bottom : 52) + 48;
+      pages.forEach((p, i) => {
+        if (p.getBoundingClientRect().top <= line) cur = i + 1;
+      });
+      state.currentPage = cur;
+    }
+    const text = `${cur} / ${pages.length}쪽`;
+    ui.pageInfo.textContent = text;
     if (ui.fsMeter) {
-      ui.fsMeter.textContent = `${cur} / ${pages.length}쪽`;
+      ui.fsMeter.textContent = text;
       ui.fsMeter.hidden = false;
     }
+    if (ui.pageNavCount) ui.pageNavCount.textContent = text;
+    if (ui.pagePrev) ui.pagePrev.disabled = cur <= 1;
+    if (ui.pageNext) ui.pageNext.disabled = cur >= pages.length;
   }
 
   /* ---------------- 몰입 전체화면 ----------------
@@ -2219,6 +2436,8 @@
     if (!state.zip || state.mode === 'edit') return true;
     /* 집는 중이거나 방금 집기를 끝낸 손짓은 누름으로 보지 않는다 */
     if (pinching || Date.now() - pinchEndAt < 350) return true;
+    /* 좌우로 밀어 쪽을 넘긴 손짓도 누름으로 보지 않는다 */
+    if (Date.now() - lastPageFlipAt < 400) return true;
     const t = e.target;
     if (!t || !t.closest) return true;
     if (t.closest('button, a, input, select, textarea, label, [contenteditable="true"]')) return true;
@@ -2291,6 +2510,8 @@
 
       const blob = await out.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: MIMETYPE });
       downloadBlob(blob, baseName(state.fileName) + '_수정.hwpx');
+      /* 고친 문서를 다시 열어도 그대로 남도록 저장본으로 마지막 문서를 갱신한다 */
+      try { saveLastDoc(state.fileName, await blob.arrayBuffer()); } catch (err) { /* 지난 문서를 그대로 둔다 */ }
       toast(`저장 완료 · ${baseName(state.fileName)}_수정.hwpx`);
     } catch (err) {
       console.error(err);
@@ -2319,6 +2540,15 @@
 
     ui.saveBtn.addEventListener('click', saveHwpx);
 
+    /* 연속 ↔ 1쪽 보기 */
+    if (ui.viewToggle) {
+      ui.viewToggle.addEventListener('click', () => {
+        setPageMode(state.pageMode === 'single' ? 'scroll' : 'single');
+      });
+    }
+    if (ui.pagePrev) ui.pagePrev.addEventListener('click', () => gotoPage(state.currentPage - 1));
+    if (ui.pageNext) ui.pageNext.addEventListener('click', () => gotoPage(state.currentPage + 1));
+
     /* 확대/축소 막대 — 한 번 누를 때마다 한 단계씩 */
     if (ui.zoomIn) ui.zoomIn.addEventListener('click', () => stepUserScale(1));
     if (ui.zoomOut) ui.zoomOut.addEventListener('click', () => stepUserScale(-1));
@@ -2339,6 +2569,31 @@
       ui.docWrap.addEventListener('touchend', endPinch, { passive: true });
       ui.docWrap.addEventListener('touchcancel', endPinch, { passive: true });
     }
+
+    /* 1쪽 보기: 손가락을 좌우로 밀어 쪽을 넘긴다.
+       확대해 둔 때(userScale > 1.05)는 가로 스크롤이 먼저이므로 넘기지 않는다. */
+    let swipe = null;
+    ui.main.addEventListener('touchstart', (e) => {
+      swipe = null;
+      if (state.pageMode !== 'single' || !state.zip) return;
+      if (!e.touches || e.touches.length !== 1) return;
+      if (state.userScale > 1.05) return;
+      const t = e.touches[0];
+      swipe = { x: t.clientX, y: t.clientY, done: false };
+    }, { passive: true });
+    ui.main.addEventListener('touchmove', (e) => {
+      if (!swipe || swipe.done || !e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      /* 세로로 더 움직였으면 그냥 스크롤하는 손짓이다 */
+      if (Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+      if (Math.abs(dx) < 56) return;
+      swipe.done = true;
+      gotoPage(state.currentPage + (dx < 0 ? 1 : -1));
+    }, { passive: true });
+    ui.main.addEventListener('touchend', () => { swipe = null; }, { passive: true });
+    ui.main.addEventListener('touchcancel', () => { swipe = null; }, { passive: true });
 
     ui.replaceBtn.addEventListener('click', () => {
       if (state.mode !== 'edit') return;
@@ -2389,6 +2644,15 @@
         setUserScale(1);
       }
       if (e.key === 'Escape' && fullscreenOn()) setFullscreen(false);
+      /* 1쪽 보기: ←/→ 로 앞·뒤 쪽 (글을 쓰거나 고르는 중에는 방해하지 않는다) */
+      if (state.pageMode === 'single' && state.zip && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const t = e.target;
+        const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''));
+        if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          e.preventDefault();
+          gotoPage(state.currentPage + (e.key === 'ArrowRight' ? 1 : -1));
+        }
+      }
     });
 
     /* 읽기 모드: 본문 빈 곳을 한 번 누르면 몰입 전체화면, 한 번 더 누르면 해제 */
@@ -2451,6 +2715,10 @@
   }
 
   bind();
+  state.pageMode = loadPageMode();
+  applyViewMode();
+  /* 마지막에 보던 문서가 브라우저 안에 있으면 드롭존 대신 그 문서를 다시 연다 */
+  restoreLastDoc();
 
   // PWA: 서비스 워커 등록 (홈 화면 설치·오프라인 지원)
   if ('serviceWorker' in navigator) {
