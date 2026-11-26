@@ -180,7 +180,7 @@ main { padding: 26px 16px 60px; }
 .dropzone a { color: var(--primary); font-weight: 700; text-decoration: none; border-bottom: 1px solid rgba(47, 107, 222, .35); }
 .dropzone a:hover { border-bottom-color: var(--primary); }
 
-.doc-wrap { max-width: 830px; margin: 0 auto; }
+.doc-wrap { max-width: 900px; margin: 0 auto; }
 
 .edit-hint {
   display: none;
@@ -194,15 +194,30 @@ main { padding: 26px 16px 60px; }
 }
 body.mode-edit .edit-hint { display: block; }
 
-.page {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 26px rgba(28, 39, 60, .09), 0 1px 3px rgba(28, 39, 60, .06);
-  padding: 54px 60px 62px;
-  min-height: 60vh;
-  counter-reset: none;
+/* 용지: 폭·높이·여백은 문서의 secPr(pagePr) 값으로 app.js가 지정한다 */
+.doc-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
 }
+
+.page {
+  position: relative;
+  box-sizing: border-box;
+  width: 794px;
+  min-height: 1123px;
+  background: var(--surface);
+  border: 1px solid #dfe3ea;
+  box-shadow: 0 8px 26px rgba(28, 39, 60, .10), 0 1px 3px rgba(28, 39, 60, .06);
+  color: #000;
+  font-family: "함초롬바탕", "HCR Batang", "바탕", "Batang", "AppleMyungjo", "Noto Serif KR", serif;
+  font-size: 10pt;
+  line-height: 1.6;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.page > *:first-child { margin-top: 0; }
 
 .page-foot {
   margin: 16px 0 0;
@@ -211,21 +226,19 @@ body.mode-edit .edit-hint { display: block; }
   color: #9aa4b2;
 }
 
-/* ---------- document content ---------- */
+/* ---------- document content ----------
+   문단 여백·들여쓰기·줄간격은 모두 paraPr 값으로 app.js가 인라인 지정한다.
+   여기서는 margin 을 0 으로 두어 실제 조판 값을 덮어쓰지 않게 한다. */
 .hp-p {
-  margin: 0 0 4px;
-  line-height: 1.78;
+  margin: 0;
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  border-radius: 4px;
+  border-radius: 2px;
   transition: background .15s, box-shadow .15s;
 }
-.hp-p-empty { min-height: 1.1em; }
+.hp-p-empty { min-height: 1em; }
 .hp-run { white-space: pre-wrap; }
-
-/* first paragraph as document heading spacing */
-.page > .hp-p:first-child { margin-bottom: 10px; }
 
 body.mode-edit .hp-p[contenteditable="true"] { cursor: text; }
 body.mode-edit .hp-p[contenteditable="true"]:hover { background: #f5f8ff; }
@@ -238,42 +251,32 @@ body.mode-edit .hp-p[contenteditable="true"]:focus {
 .hp-p.modified {
   background: var(--mark);
   box-shadow: inset 3px 0 0 var(--mark-line);
-  padding-left: 8px;
-  margin-left: -8px;
 }
 body.mode-edit .hp-p.modified:focus { background: #fff3cd; }
 
-/* ---------- tables ---------- */
+/* ---------- tables ----------
+   표 폭·열 폭·셀 여백·테두리·배경은 hp:tbl / hp:tc 값으로 app.js가 인라인 지정한다. */
 .hp-tbl-wrap {
-  margin: 14px 0 18px;
+  margin: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 table.hp-tbl {
-  width: 100%;
   border-collapse: collapse;
-  border: 1px solid #c9d1de;
-  font-size: 13.5px;
   background: #fff;
+  table-layout: fixed;
 }
-table.hp-tbl th,
-table.hp-tbl td {
-  border: 1px solid #cdd5e1;
-  padding: 7px 10px;
-  vertical-align: middle;
-  text-align: left;
+table.hp-tbl td.hp-cell {
+  border: 1px solid #000;
+  padding: 0;
+  vertical-align: top;
   font-weight: inherit;
+  text-align: inherit;
+  word-break: break-all;
 }
-table.hp-tbl th {
-  background: #f1f5fb;
-  font-weight: 700;
-  color: #2b3849;
-  text-align: center;
-}
-table.hp-tbl td .hp-p,
-table.hp-tbl th .hp-p { margin: 0; line-height: 1.55; }
+table.hp-tbl td .hp-p { margin: 0; }
 
-body.mode-edit table.hp-tbl td[contenteditable], body.mode-edit table.hp-tbl th[contenteditable] { cursor: text; }
+body.mode-edit table.hp-tbl td[contenteditable] { cursor: text; }
 
 /* ---------- toast / overlay ---------- */
 .toast {
@@ -322,10 +325,7 @@ body.mode-edit table.hp-tbl td[contenteditable], body.mode-edit table.hp-tbl th[
   main { padding: 16px 10px 48px; }
   .dropzone { padding: 40px 18px; margin-top: 2vh; }
   .dropzone h1 { font-size: 18px; }
-  .page { padding: 26px 18px 34px; border-radius: 10px; }
-  .hp-p { font-size: 14.5px; line-height: 1.75; }
-  table.hp-tbl { font-size: 12.5px; }
-  table.hp-tbl th, table.hp-tbl td { padding: 6px 7px; }
+  .doc-pages { gap: 14px; }
   .replace-panel { padding: 9px 12px; gap: 8px; }
   .rp-field { min-width: 120px; flex: 1 1 130px; }
 }
@@ -338,6 +338,4 @@ body.mode-edit table.hp-tbl td[contenteditable], body.mode-edit table.hp-tbl th[
   .actions .btn { flex: 1 1 auto; text-align: center; }
   .segmented { flex: 1 1 auto; justify-content: center; }
   .segmented button { flex: 1; }
-  .page { padding: 22px 15px 30px; }
-  .hp-p { font-size: 14px; }
 }
