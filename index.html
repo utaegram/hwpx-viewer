@@ -14,20 +14,19 @@
 
 <header class="app-header">
   <div class="brand">
-    <span class="logo">HWPX</span>
-    <div class="file-meta">
-      <span class="fname" id="fileName">파일을 열어 주세요</span>
-      <span class="fstatus" id="fileStatus">읽기 전용 뷰어 · 100% 로컬 처리</span>
-    </div>
+    <span class="logo" aria-hidden="true">HWPX</span>
+    <span class="fname" id="fileName">파일을 열어 주세요</span>
+    <span class="fstatus" id="fileStatus" hidden></span>
+  </div>
+  <div class="doc-meter" id="docMeter" hidden>
+    <span class="page-info" id="pageInfo">1 / 1쪽</span>
+    <span class="dirty-dot" id="dirtyDot" hidden title="수정한 곳이 있습니다"></span>
   </div>
   <div class="actions">
-    <div class="segmented" id="modeToggle" role="group" aria-label="보기 모드">
-      <button type="button" data-mode="read" class="on" aria-pressed="true" disabled>읽기</button>
-      <button type="button" data-mode="edit" aria-pressed="false" disabled>편집</button>
-    </div>
-    <button type="button" class="btn ghost" id="replaceBtn" disabled>찾아바꾸기</button>
-    <button type="button" class="btn primary" id="saveBtn" disabled>.hwpx 저장</button>
-    <button type="button" class="btn ghost" id="openBtn">파일 열기</button>
+    <button type="button" class="btn ghost sm" id="modeToggle" data-mode="edit" disabled>편집</button>
+    <button type="button" class="btn ghost sm" id="replaceBtn" disabled hidden>찾아바꾸기</button>
+    <button type="button" class="btn ghost sm" id="openBtn">열기</button>
+    <button type="button" class="btn primary sm" id="saveBtn" disabled>저장</button>
   </div>
 </header>
 
