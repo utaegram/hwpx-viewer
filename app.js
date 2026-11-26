@@ -2207,8 +2207,19 @@
     });
 
     /* 읽기 모드: 본문 빈 곳을 한 번 누르면 몰입 전체화면, 한 번 더 누르면 해제 */
+    let tapStart = null;
+    ui.main.addEventListener('pointerdown', (e) => {
+      tapStart = { x: e.clientX, y: e.clientY, t: Date.now() };
+    }, { passive: true });
     ui.main.addEventListener('click', (e) => {
       if (shouldIgnoreFullscreenTap(e)) return;
+      if (tapStart) {
+        const moved = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
+        const held = Date.now() - tapStart.t;
+        tapStart = null;
+        /* 끌어서 스크롤하거나 길게 눌러 글자를 고른 경우는 누름으로 보지 않는다 */
+        if (moved > 8 || held > 600) return;
+      }
       toggleFullscreen();
     });
 
