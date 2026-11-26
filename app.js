@@ -627,7 +627,11 @@
       page.appendChild(block);
 
       let h = block.offsetHeight;
-      if (h <= contentH - used + SLACK) { used += h; continue; }
+      /* 저자 페이지 나눔 바로 앞의 짧은 꼬리(각주 등)가 다음 장에 홀로 남지 않도록
+         아래 여백을 조금만 빌려 쓴다. */
+      const nextBreak = queue.length && queue[0].dataset.breakBefore === '1';
+      const borrow = nextBreak && !tableOfBlock(block) ? Math.min(g.bottomPx * 0.55, contentH * 0.05) : 0;
+      if (h <= contentH - used + SLACK + borrow) { used += h; continue; }
 
       /* 이 페이지 남은 자리에 들어가지 않는다 */
       const remaining = contentH - used;
