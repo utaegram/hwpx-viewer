@@ -671,20 +671,26 @@
     const rows = Array.from(tblEl.children).filter((c) => local(c) === 'tr');
     const colCount = Math.max(1, num(tblEl.getAttribute('colCnt'), 0) || 0);
 
-    /* 열 폭: colSpan=1 셀의 cellSz 폭으로 계산 */
-    const widths = new Array(colCount).fill(0);
-    const scan = (tr) => {
+    /* 열 폭: colSpan=1 셀이 가장 많은 행을 기준으로 잡고, 모자란 열은 다른 행에서 보충한다 */
+    const candidates = [];
+    for (const tr of rows) {
+      const row = new Array(colCount).fill(0);
       let col = 0;
       for (const tc of kids(tr, 'tc')) {
         const span = kids(tc, 'cellSpan')[0];
         const colSpan = Math.max(1, num(span ? span.getAttribute('colSpan') : 1, 1));
         const csz = kids(tc, 'cellSz')[0];
         const wu = csz ? num(csz.getAttribute('width'), 0) : 0;
-        if (colSpan === 1 && col < widths.length && wu) widths[col] = wu;
+        if (colSpan === 1 && col < row.length && wu) row[col] = wu;
         col += colSpan;
       }
-    };
-    rows.forEach(scan);
+      candidates.push(row);
+    }
+    candidates.sort((a, b) => b.filter((w) => w > 0).length - a.filter((w) => w > 0).length);
+    const widths = new Array(colCount).fill(0);
+    for (const row of candidates) {
+      for (let i = 0; i < widths.length; i++) if (!widths[i] && row[i]) widths[i] = row[i];
+    }
     const known = widths.filter((w) => w > 0);
     const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
     for (let i = 0; i < widths.length; i++) if (!widths[i]) widths[i] = avg;
