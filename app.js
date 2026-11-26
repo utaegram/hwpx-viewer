@@ -45,6 +45,7 @@
 
   const emptyStyles = () => ({
     char: new Map(), para: new Map(), faces: new Map(), borderFills: new Map(), styles: new Map(),
+    tabs: new Map(),
     defaultCharId: '0', defaultParaId: '0',
   });
 
@@ -238,6 +239,7 @@
       };
       const ls = firstIn(picked, 'lineSpacing') || firstIn(pp, 'lineSpacing');
       const alignEl = firstIn(pp, 'align');
+      const bs = firstIn(pp, 'breakSetting');
       st.para.set(String(id), {
         align: alignEl ? String(alignEl.getAttribute('horizontal') || '').toUpperCase() : '',
         lineType: ls ? String(ls.getAttribute('type') || 'PERCENT').toUpperCase() : 'PERCENT',
@@ -247,6 +249,38 @@
         right: mval('right'),
         prev: mval('prev'),
         next: mval('next'),
+        tabPr: String(pp.getAttribute('tabPrIDRef') || ''),
+        keepLatinWord: bs ? String(bs.getAttribute('breakLatinWord') || '').toUpperCase() : '',
+      });
+    }
+
+    /* 탭 정지점 (hh:tabProperties > hh:tabPr > hh:tabItem pos) — 2016 규격 switch 는 case 를 쓴다 */
+    for (const tp of allByLocal(doc, 'tabPr')) {
+      const id = tp.getAttribute('id');
+      if (id == null) continue;
+      const items = [];
+      const pushItems = (root) => {
+        for (const it of kids(root, 'tabItem')) {
+          items.push({
+            pos: num(it.getAttribute('pos'), 0),
+            type: String(it.getAttribute('type') || 'LEFT').toUpperCase(),
+            leader: String(it.getAttribute('leader') || 'NONE').toUpperCase(),
+          });
+        }
+      };
+      for (const child of Array.from(tp.children)) {
+        const nm = local(child);
+        if (nm === 'tabItem') pushItems(tp);
+        else if (nm === 'switch') {
+          const c = kids(child, 'case')[0];
+          pushItems(c || kids(child, 'default')[0] || child);
+        }
+      }
+      st.tabs.set(String(id), {
+        autoLeft: String(tp.getAttribute('autoTabLeft') || '0') === '1',
+        items: items
+          .filter((it, i, arr) => arr.findIndex((x) => x.pos === it.pos) === i)
+          .sort((a, b) => a.pos - b.pos),
       });
     }
 
@@ -266,11 +300,13 @@
     }
   }
 
-  /* HWP 자간(%) → CSS letter-spacing(em) */
+  /* HWP 자간(%) → CSS letter-spacing(em). 한글의 자간 % 는 글자 폭 기준이라
+     -16% 는 em 의 -0.16 이다. 겹침을 막기 위해 극단값만 잘라 둔다. */
   function charSpacing(v) {
     if (!v) return 0;
-    if (v < 0) return Math.max(-0.08, v * 0.005);
-    return Math.min(0.2, v * 0.008);
+    /* 한글 자간 % 는 글자 폭 기준이라 -16% 면 -0.16em 이지만, 브라우저가 쓰는
+       대체 글꼴은 속공간이 좁아 그대로 두면 글자가 겹친다. 겹치지 않을 만큼만 당긴다. */
+    return clamp(v / 100, -0.1, 0.3);
   }
 
   function isOn(node, name) {
@@ -975,7 +1011,40 @@
     const tables = tablesOf(pEl);
     const div = makeParagraph(pEl, sec, tables.length > 0);
     host.appendChild(div);
-    for (const tbl of tables) div.appendChild(renderTable(tbl, sec));
+    if (tables.length) {
+      /* 표만 있는 문단: 한글은 표를 한 글자처럼 줄 안에 놓고 문단 정렬을 따른다.
+         문단의 들여쓰기(padding/text-indent)를 표가 물려받으면 오른쪽으로 밀리므로,
+         줄 정보의 horzpos 만큼만 밀어 두고 나머지는 표 자신의 여백에 맡긴다. */
+      const ps = paraStyle(pEl);
+      const segs = lineSegs(pEl);
+      const hasText = ownText(pEl).trim() !== '';
+      const align = ALIGN[ps && ps.align];
+      let lineW = 0;
+      if (!hasText && segs && segs.length) {
+        div.classList.add('hp-p-tbl');
+        div.style.paddingLeft = round(clamp(segs[0].horzpos * U2PX, 0, 4000), 2) + 'px';
+        if (align) div.style.textAlign = align;
+        lineW = Math.max(0, segs[0].horzsize * U2PX);
+      }
+      for (const tbl of tables) {
+        const el = renderTable(tbl, sec);
+        /* 표를 한 글자처럼 다룰 때(treatAsChar)는 문단 정렬이 표의 가로 위치를 정한다.
+           가운데·오른쪽 정렬 문단의 표가 왼쪽으로 밀려 보이던 문제를 여기서 바로잡는다. */
+        if (!hasText && lineW > 0 && (align === 'center' || align === 'right')) {
+          const sz = kids(tbl, 'sz')[0];
+          const om = kids(tbl, 'outMargin')[0];
+          const tw = num(sz && sz.getAttribute('width'), 0) * U2PX;
+          const omL = num(om && om.getAttribute('left'), 0) * U2PX;
+          const omR = num(om && om.getAttribute('right'), 0) * U2PX;
+          const free = lineW - (tw + omL + omR);
+          if (tw > 0 && free > 0) {
+            const shift = align === 'center' ? free / 2 : free;
+            el.style.marginLeft = round(omL + shift, 2) + 'px';
+          }
+        }
+        div.appendChild(el);
+      }
+    }
     return div;
   }
 
@@ -1155,6 +1224,157 @@
   }
 
   /* 한 문단: paraPr 의 정렬·여백·들여쓰기·줄간격을 그대로 옮긴다 */
+  /* ---------------- HWP 조판 정보(lineseg) 기반 줄 배치 ----------------
+     HWPX 의 <hp:p> 안에는 한글이 저장할 때 계산해 둔 줄 정보(linesegarray)가 있다.
+     줄마다 글자 시작 위치(textpos)·왼쪽 좌표(horzpos)·높이(textheight/spacing)가
+     적혀 있으므로, 그것을 그대로 옮기면 들여쓰기·내어쓰기·줄바꿈·줄높이가
+     한글과 같은 자리에 온다. 없거나 개체가 섞인 문단은 브라우저 흐름으로 그린다. */
+  function lineSegs(pEl) {
+    const arr = kids(pEl, 'linesegarray')[0];
+    if (!arr) return null;
+    const out = [];
+    for (const el of kids(arr, 'lineseg')) {
+      out.push({
+        textpos: Math.max(0, num(el.getAttribute('textpos'), 0)),
+        vertpos: num(el.getAttribute('vertpos'), 0),
+        vertsize: num(el.getAttribute('vertsize'), 0),
+        textheight: num(el.getAttribute('textheight'), 0),
+        baseline: num(el.getAttribute('baseline'), 0),
+        spacing: num(el.getAttribute('spacing'), 0),
+        horzpos: num(el.getAttribute('horzpos'), 0),
+        horzsize: num(el.getAttribute('horzsize'), 0),
+      });
+    }
+    return out.length ? out : null;
+  }
+
+  /* 문단 글자를 순서대로 늘어놓는다 (textpos 는 이 순서의 글자 번호).
+     탭·줄나눔·고정폭공백·개체도 한 글자로 센다. */
+  function buildAtoms(pEl) {
+    const atoms = [];
+    let hasObj = false;
+    let mark = '';
+    const pushText = (text, cid) => {
+      for (const ch of String(text).replace(/[\r\n]+/g, ' ')) atoms.push({ kind: 'text', ch, cid, mark });
+    };
+    /* <hp:t> 안: 글자 노드와 tab·lineBreak·markpen 같은 인라인 요소가 섞여 있다 */
+    const walkT = (tEl, cid) => {
+      for (const c of tEl.childNodes) {
+        if (c.nodeType === 3) { pushText(c.nodeValue, cid); continue; }
+        if (c.nodeType !== 1) continue;
+        const nm = local(c);
+        if (nm === 'tab') atoms.push({ kind: 'tab', cid });
+        else if (nm === 'lineBreak') atoms.push({ kind: 'br', cid });
+        else if (nm === 'nbSpace') atoms.push({ kind: 'text', ch: '\u00A0', cid, mark });
+        /* 고정폭 공백은 보통 공백이 아니라 글자 폭만큼 벌어진 공백이다 */
+        else if (nm === 'fwSpace') atoms.push({ kind: 'text', ch: '\u2007', cid, mark });
+        else if (nm === 'hyphen') atoms.push({ kind: 'text', ch: '\u00AD', cid, mark });
+        else if (nm === 'markpenBegin') mark = cssColor(c.getAttribute('color'), '#fff59d');
+        else if (nm === 'markpenEnd') mark = '';
+        else walkT(c, cid);
+      }
+    };
+    for (const run of kids(pEl, 'run')) {
+      const cid = run.getAttribute('charPrIDRef');
+      mark = '';
+      for (const c of Array.from(run.children)) {
+        const nm = local(c);
+        if (nm === 't') walkT(c, cid);
+        else if (OBJ_TAGS.has(nm)) { hasObj = true; atoms.push({ kind: 'obj', node: c, cid }); }
+        else if (nm === 'ctrl') {
+          for (const cc of Array.from(c.children)) {
+            const n2 = local(cc);
+            if (n2 === 'footNote' || n2 === 'endNote') { hasObj = true; atoms.push({ kind: 'note', node: cc, cid }); }
+            else if (OBJ_TAGS.has(n2)) { hasObj = true; atoms.push({ kind: 'obj', node: cc, cid }); }
+          }
+        }
+      }
+    }
+    return { atoms, hasObj };
+  }
+
+  function makeTabSpan(cid, ps) {
+    const sp = document.createElement('span');
+    sp.className = 'hp-tab';
+    const cs = charStyle(cid);
+    if (cs) sp.style.fontSize = round(cs.sizePt, 3) + 'pt';
+    if (ps && ps.tabPr) sp.dataset.tabPr = ps.tabPr;
+    const fill = document.createElement('span');
+    fill.className = 'hp-tab-fill';
+    sp.appendChild(fill);
+    return sp;
+  }
+
+  /* 조각들을 한 줄에 그린다 (같은 글자 모양은 span 하나로 묶는다) */
+  function renderAtoms(atoms, host, sec, ps) {
+    let buf = '';
+    let cid = null;
+    let mark = '';
+    const flush = () => {
+      if (!buf) return;
+      const sp = document.createElement('span');
+      sp.className = 'hp-run';
+      applyCharStyle(sp, charStyle(cid));
+      if (mark) sp.style.backgroundColor = mark;
+      sp.textContent = buf;
+      host.appendChild(sp);
+      buf = '';
+    };
+    for (const a of atoms) {
+      if (a.kind === 'text') {
+        if (a.cid !== cid || (a.mark || '') !== mark) { flush(); cid = a.cid; mark = a.mark || ''; }
+        buf += a.ch;
+        continue;
+      }
+      flush();
+      if (a.kind === 'tab') host.appendChild(makeTabSpan(a.cid, ps));
+      else if (a.kind === 'br') host.appendChild(document.createElement('br'));
+      else if (a.kind === 'note') host.appendChild(noteMarker(a.node));
+      else if (a.kind === 'obj') {
+        const el = renderObject(a.node, sec);
+        if (el) host.appendChild(el);
+      }
+    }
+    flush();
+  }
+
+  function renderLineLayout(div, atoms, lines, ps, sec) {
+    const nLines = lines.length;
+    const align = ps ? ALIGN[ps.align] : '';
+    for (let i = 0; i < nLines; i++) {
+      const seg = lines[i];
+      const from = clamp(seg.textpos, 0, atoms.length);
+      const to = i + 1 < nLines ? clamp(lines[i + 1].textpos, from, atoms.length) : atoms.length;
+      const slice = atoms.slice(from, to);
+      /* 줄 끝의 빈칸은 한글이 줄을 나누며 먹은 자리라 그리지 않는다 */
+      if (i + 1 < nLines) {
+        while (slice.length) {
+          const last = slice[slice.length - 1];
+          if (last.kind === 'text' && (last.ch === ' ' || last.ch === '\u00A0')) slice.pop();
+          else break;
+        }
+      }
+      const line = document.createElement('div');
+      line.className = 'hp-line';
+      const advance = Math.max(1, (seg.textheight + seg.spacing) * U2PX);
+      line.style.height = round(advance, 2) + 'px';
+      line.style.lineHeight = round(Math.max(seg.textheight, 1) * U2PX, 2) + 'px';
+      /* 문단 들여쓰기(intent)는 lineseg 의 horzpos 에 담기지 않는다.
+         들여쓰기(+)는 첫 줄만, 내어쓰기(-)는 이어지는 줄만 그만큼 더 들어간다. */
+      let leftHwu = seg.horzpos;
+      if (ps && ps.intent) {
+        if (i === 0) { if (ps.intent > 0) leftHwu += ps.intent; }
+        else if (ps.intent < 0) leftHwu -= ps.intent;
+      }
+      line.style.paddingLeft = round(clamp(leftHwu * U2PX, 0, 4000), 2) + 'px';
+      if (align) line.style.textAlign = align;
+      if (align === 'justify' && i + 1 < nLines) line.classList.add('hp-line-justify');
+      line.dataset.textpos = String(seg.textpos);
+      renderAtoms(slice, line, sec, ps);
+      div.appendChild(line);
+    }
+  }
+
   function makeParagraph(pEl, sec, hasTable) {
     const div = document.createElement('div');
     div.className = 'hp-p';
@@ -1166,26 +1386,35 @@
     const primaryRun = runs.find((r) => kids(r, 't').length) || runs[0];
     const primary = charStyle(primaryRun ? primaryRun.getAttribute('charPrIDRef') : null);
 
+    /* 읽기 모드에서는 한글이 저장한 줄 정보로 줄을 직접 놓는다.
+       개체(그림·도형)가 섞였거나 줄 정보가 글자 수와 맞지 않으면 흐름 배치로 돌아간다. */
+    const atomsInfo = buildAtoms(pEl);
+    const lines = (!hasTable && state.mode !== 'edit') ? lineSegs(pEl) : null;
+    const lastTextpos = lines ? lines[lines.length - 1].textpos : 0;
+    const lineMode = !!(lines && !atomsInfo.hasObj && atomsInfo.atoms.length >= lastTextpos);
+
     if (ps) {
-      const align = ALIGN[ps.align];
-      if (align) div.style.textAlign = align;
       const pad = (v) => round(clamp(v * U2PT, 0, availPt * 0.7), 2);
       if (ps.prev) div.style.paddingTop = pad(ps.prev) + 'pt';
       if (ps.next) div.style.paddingBottom = pad(ps.next) + 'pt';
       if (ps.right) div.style.paddingRight = pad(ps.right) + 'pt';
-      const intent = clamp(ps.intent * U2PT, -availPt * 0.7, availPt * 0.7);
-      const left = clamp(ps.left * U2PT, 0, availPt * 0.7);
-      if (intent > 0) {
-        if (left) div.style.paddingLeft = round(left, 2) + 'pt';
-        div.style.textIndent = round(intent, 2) + 'pt';
-      } else if (intent < 0) {
-        /* 내어쓰기: 첫 줄만 왼쪽으로 나가고 나머지 줄은 |intent| 만큼 들어간다 */
-        div.style.paddingLeft = round(Math.max(0, left - intent), 2) + 'pt';
-        div.style.textIndent = round(intent, 2) + 'pt';
-      } else if (left) {
-        div.style.paddingLeft = round(left, 2) + 'pt';
+      if (!lineMode) {
+        const align = ALIGN[ps.align];
+        if (align) div.style.textAlign = align;
+        const intent = clamp(ps.intent * U2PT, -availPt * 0.7, availPt * 0.7);
+        const left = clamp(ps.left * U2PT, 0, availPt * 0.7);
+        if (intent > 0) {
+          if (left) div.style.paddingLeft = round(left, 2) + 'pt';
+          div.style.textIndent = round(intent, 2) + 'pt';
+        } else if (intent < 0) {
+          /* 내어쓰기: 첫 줄만 왼쪽으로 나가고 나머지 줄은 |intent| 만큼 들어간다 */
+          div.style.paddingLeft = round(Math.max(0, left - intent), 2) + 'pt';
+          div.style.textIndent = round(intent, 2) + 'pt';
+        } else if (left) {
+          div.style.paddingLeft = round(left, 2) + 'pt';
+        }
+        div.style.lineHeight = lineHeightCss(ps, primary ? primary.sizePt : 10);
       }
-      div.style.lineHeight = lineHeightCss(ps, primary ? primary.sizePt : 10);
     }
     if (pEl.getAttribute('pageBreak') === '1') div.dataset.breakBefore = '1';
 
@@ -1194,15 +1423,20 @@
       div.style.fontSize = round(primary.sizePt, 2) + 'pt';
     }
 
-    let text = '';
-    for (const run of runs) {
-      const segs = runSegments(run);
-      for (const s of segs) if (s.kind === 'text' || s.kind === 'tab') text += s.kind === 'text' ? s.text : '\t';
-      renderSegs(segs, div, sec);
-    }
-    if (!text.trim() && !hasTable && !div.querySelector('.hp-obj')) {
-      div.classList.add('hp-p-empty');
-      div.appendChild(document.createElement('br'));
+    if (lineMode) {
+      div.classList.add('hp-p-lines');
+      renderLineLayout(div, atomsInfo.atoms, lines, ps, sec);
+    } else {
+      let text = '';
+      for (const run of runs) {
+        const segs = runSegments(run);
+        for (const s of segs) if (s.kind === 'text' || s.kind === 'tab') text += s.kind === 'text' ? s.text : '\t';
+        renderSegs(segs, div, sec);
+      }
+      if (!text.trim() && !hasTable && !div.querySelector('.hp-obj')) {
+        div.classList.add('hp-p-empty');
+        div.appendChild(document.createElement('br'));
+      }
     }
 
     if (!hasTable) {

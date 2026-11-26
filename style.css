@@ -265,15 +265,27 @@ table.hp-tbl td.hp-cell {
   font-weight: inherit;
   text-align: inherit;
   word-break: normal;
-  /* 좁은 칸에서도 글자가 옆 칸으로 넘쳐 겹치지 않게 */
-  overflow-wrap: anywhere;
-  overflow: hidden;
+  /* 한글은 낱말(라틴 단어)을 끊지 않고 칸 밖으로 조금 넘겨 그린다.
+     125KW 가 125K / W 로 갈라지던 것은 이 칸이 글자를 강제로 끊었기 때문이다. */
+  overflow-wrap: normal;
+  overflow: visible;
 }
 table.hp-tbl td .hp-p { margin: 0; max-width: 100%; }
 table.hp-tbl td .hp-runs { max-width: 100%; }
 table.hp-tbl td.hp-cell-cont > .hp-p { min-height: 0; }
 
 body.mode-edit table.hp-tbl td[contenteditable] { cursor: text; }
+
+/* 한글 조판 정보로 놓은 줄: 한 줄이 곧 한글의 한 줄이라 절대 다시 접지 않는다.
+   글꼴 대체로 조금 넓어져도 줄바꿈 위치가 한글과 달라지지 않게.
+   .hp-run 이 pre-wrap 이라 안쪽 조각까지 함께 눌러 둔다. */
+.hp-p-lines .hp-line,
+.hp-p-lines .hp-line .hp-run,
+.hp-p-lines .hp-line .hp-tab { white-space: pre; }
+
+/* 한글 글꼴의 공백은 약 0.5em 인데 브라우저 대체 글꼴은 약 0.25em 이라, 그대로 두면
+   한 줄 안에서 글자가 왼쪽으로 모여 줄 끝이 한글보다 짧아진다. 그 차이만큼 늘려 준다. */
+.hp-p-lines .hp-line .hp-run { word-spacing: 0.2em; }
 
 /* ---------- inline tab / objects ---------- */
 .hp-tab { white-space: pre; }
