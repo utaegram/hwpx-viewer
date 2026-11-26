@@ -214,8 +214,8 @@ body.mode-edit .edit-hint { display: block; }
   font-family: "함초롬바탕", "HCR Batang", "바탕", "Batang", "AppleMyungjo", "Noto Serif KR", serif;
   font-size: 10pt;
   line-height: 1.6;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 .page > *:first-child { margin-top: 0; }
 
@@ -231,8 +231,8 @@ body.mode-edit .edit-hint { display: block; }
    여기서는 margin 을 0 으로 두어 실제 조판 값을 덮어쓰지 않게 한다. */
 .hp-p {
   margin: 0;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
   border-radius: 2px;
   transition: background .15s, box-shadow .15s;
@@ -272,7 +272,8 @@ table.hp-tbl td.hp-cell {
   vertical-align: top;
   font-weight: inherit;
   text-align: inherit;
-  word-break: break-all;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 table.hp-tbl td .hp-p { margin: 0; }
 
