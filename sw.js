@@ -1,7 +1,7 @@
 /* HWPX 뷰어 서비스 워커 — 앱 셸 프리캐시 + 네트워크 우선(오프라인 시 캐시 폴백) */
 'use strict';
 
-const VERSION = '3';
+const VERSION = '4';
 const CACHE = `hwpx-viewer-${VERSION}`;
 const RUNTIME = `hwpx-viewer-runtime-${VERSION}`;
 
@@ -13,6 +13,7 @@ const APP_SHELL = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/maskable-512.png',
 ];
 
 /* 문서를 열려면 반드시 필요한 외부 라이브러리 — 오프라인에서도 열리도록 미리 받아 둔다 */

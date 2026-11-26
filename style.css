@@ -43,19 +43,20 @@ body { min-height: 100vh; }
   background: rgba(255, 255, 255, .92);
   backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
+  transition: margin-top .26s ease, opacity .18s ease;
 }
 
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1 1 auto; }
 
 .logo {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: .08em;
+  letter-spacing: .01em;
   color: #fff;
   background: #2f6bde;
-  border-radius: 5px;
-  padding: 4px 6px;
+  border-radius: 6px;
+  padding: 5px 8px;
   line-height: 1;
 }
 
@@ -379,6 +380,39 @@ body.mode-edit table.hp-tbl td[contenteditable] { cursor: text; }
   border: 3px dashed rgba(255, 255, 255, .8);
   border-radius: 16px;
 }
+
+/* ---------- 몰입 전체화면 ----------
+   읽기 모드에서 본문을 한 번 누르면 머리말을 걷어 내고 문서가 화면을 다 쓴다. */
+body.is-fullscreen .app-header {
+  margin-top: calc(-1 * var(--header-h));
+  opacity: 0;
+  pointer-events: none;
+}
+body.is-fullscreen main {
+  padding: 10px 6px 40px;
+}
+body.is-fullscreen .doc-wrap { max-width: 100%; }
+body.is-fullscreen .page-foot { opacity: .55; }
+
+/* 오른쪽 아래에 은은하게 남기는 쪽 표시 */
+.fs-meter {
+  position: fixed;
+  right: 14px;
+  bottom: 16px;
+  z-index: 25;
+  padding: 5px 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(31, 39, 51, .55);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+body.is-fullscreen .fs-meter:not([hidden]) { display: block; opacity: 1; }
+body.is-fullscreen .fs-meter[hidden] { display: none; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {

@@ -37,10 +37,11 @@
     docMeter: $id('docMeter'), pageInfo: $id('pageInfo'), dirtyDot: $id('dirtyDot'),
     modeToggle: $id('modeToggle'), replaceBtn: $id('replaceBtn'), saveBtn: $id('saveBtn'),
     openBtn: $id('openBtn'), dropzone: $id('dropzone'), docWrap: $id('docWrap'), doc: $id('doc'),
+    main: $id('main'),
     dzOpenBtn: $id('dzOpenBtn'), replacePanel: $id('replacePanel'), findInput: $id('findInput'),
     replaceInput: $id('replaceInput'), replaceAllBtn: $id('replaceAllBtn'),
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
-    toast: $id('toast'), dropOverlay: $id('dropOverlay'),
+    toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
   };
 
   const emptyStyles = () => ({
@@ -488,7 +489,7 @@
       return;
     }
     if (!/\.hwpx$/i.test(file.name)) {
-      toast('확장자가 .hwpx 인 파일만 열 수 있습니다.', true);
+      toast('지원하지 않는 파일입니다. .hwpx 파일을 선택해 주세요.', true);
       return;
     }
     ui.fileStatus.textContent = '여는 중…';
@@ -1985,6 +1986,8 @@
     ui.replaceBtn.hidden = !editing;
     ui.replaceBtn.disabled = !(state.zip && editing);
     if (!editing) ui.replacePanel.hidden = true;
+    /* 편집으로 들어가면 몰입 전체화면은 풀어 둔다 (머리말 버튼이 필요하므로) */
+    if (editing && fullscreenOn()) setFullscreen(false);
     if (state.zip) {
       if (!opts || opts.rerender) renderDocument();
       updateStatus();
@@ -2013,7 +2016,7 @@
   /* 지금 보고 있는 쪽 표시 (1 / 5쪽) */
   function updatePageInfo() {
     const pages = Array.from(ui.doc.querySelectorAll('.page'));
-    if (!pages.length) { ui.docMeter.hidden = true; return; }
+    if (!pages.length) { ui.docMeter.hidden = true; if (ui.fsMeter) ui.fsMeter.hidden = true; return; }
     ui.docMeter.hidden = false;
     const header = document.querySelector('.app-header');
     const line = (header ? header.getBoundingClientRect().bottom : 52) + 48;
@@ -2022,6 +2025,54 @@
       if (p.getBoundingClientRect().top <= line) cur = i + 1;
     });
     ui.pageInfo.textContent = `${cur} / ${pages.length}쪽`;
+    if (ui.fsMeter) {
+      ui.fsMeter.textContent = `${cur} / ${pages.length}쪽`;
+      ui.fsMeter.hidden = false;
+    }
+  }
+
+  /* ---------------- 몰입 전체화면 ----------------
+     읽기 모드에서 본문 빈 곳을 한 번 누르면 머리말을 걷어 내고 문서만 화면에 남긴다.
+     한 번 더 누르면 원래대로 돌아온다. 편집 중에는 글자를 고르려는 손짓과 겹치므로 끄지 않는다. */
+  let fullscreenTimer = null;
+
+  function fullscreenOn() {
+    return document.body.classList.contains('is-fullscreen');
+  }
+
+  function setFullscreen(on) {
+    const next = !!on;
+    if (fullscreenOn() === next) return;
+    document.body.classList.toggle('is-fullscreen', next);
+    clearTimeout(fullscreenTimer);
+    /* 머리말이 사라진 높이에 맞춰 용지 폭을 다시 계산한다 */
+    fullscreenTimer = setTimeout(() => { fitPages(); updatePageInfo(); }, 260);
+  }
+
+  function toggleFullscreen() {
+    if (!state.zip || state.mode === 'edit') return;
+    const next = !fullscreenOn();
+    setFullscreen(next);
+    /* 브라우저 자체의 전체화면은 되는 경우에만 시도하고, 실패해도 머리말 숨김은 그대로 둔다 */
+    try {
+      if (next && document.fullscreenEnabled && !document.fullscreenElement) {
+        const p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(() => {});
+      } else if (!next && document.fullscreenElement) {
+        const p = document.exitFullscreen();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch (err) { /* 제스처가 아니거나 막힌 경우 — 무시 */ }
+  }
+
+  function shouldIgnoreFullscreenTap(e) {
+    if (!state.zip || state.mode === 'edit') return true;
+    const t = e.target;
+    if (!t || !t.closest) return true;
+    if (t.closest('button, a, input, select, textarea, label, [contenteditable="true"]')) return true;
+    const sel = window.getSelection && window.getSelection();
+    if (sel && String(sel).length > 0) return true;   // 글자를 골라 복사하려는 경우
+    return false;
   }
 
   /* ---------------- find & replace ---------------- */
@@ -2152,6 +2203,18 @@
         e.preventDefault();
         if (state.zip) saveHwpx();
       }
+      if (e.key === 'Escape' && fullscreenOn()) setFullscreen(false);
+    });
+
+    /* 읽기 모드: 본문 빈 곳을 한 번 누르면 몰입 전체화면, 한 번 더 누르면 해제 */
+    ui.main.addEventListener('click', (e) => {
+      if (shouldIgnoreFullscreenTap(e)) return;
+      toggleFullscreen();
+    });
+
+    /* 브라우저 전체화면을 사용자가 빠져나가면(뒤로 가기 등) 머리말도 함께 되살린다 */
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && fullscreenOn()) setFullscreen(false);
     });
 
     let resizeTimer = null;
