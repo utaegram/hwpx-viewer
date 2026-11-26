@@ -42,6 +42,7 @@
     replaceInput: $id('replaceInput'), replaceAllBtn: $id('replaceAllBtn'),
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
     toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
+    zoomBar: $id('zoomBar'), zoomIn: $id('zoomIn'), zoomOut: $id('zoomOut'), zoomReset: $id('zoomReset'),
   };
 
   const emptyStyles = () => ({
@@ -62,6 +63,7 @@
     mode: 'read',
     busy: false,
     fontPass: 0,
+    userScale: 1,            // 사용자가 고른 문서 배율 (fitPages 축소 위에 한 겹 더)
   };
 
   /* ---------------- helpers ---------------- */
@@ -481,6 +483,39 @@
     } catch (e) { /* 글꼴을 못 받아도 기본 글꼴로 그린다 */ }
   }
 
+  /* ---------------- 파일 선택 ----------------
+     브라우저 보안상 안드로이드 '내 파일' 앱의 탭을 직접 고를 수는 없지만, File System Access
+     API 가 있는 곳에서는 startIn:'documents' 로 문서 폴더를 먼저 열고 .hwpx 문서만 보여 준다.
+     이 API 가 없거나 막힌 브라우저는 아래 <input type=file> 로 넘긴다(accept 도 문서 계열). */
+  async function pickDocument() {
+    const picker = window.showOpenFilePicker;
+    if (typeof picker === 'function') {
+      try {
+        const handles = await picker.call(window, {
+          multiple: false,
+          excludeAcceptAllOption: false,
+          startIn: 'documents',
+          types: [{
+            description: '한글 문서 (.hwpx)',
+            accept: {
+              'application/hwpx+zip': ['.hwpx'],
+              'application/octet-stream': ['.hwpx'],
+            },
+          }],
+        });
+        const handle = handles && handles[0];
+        if (!handle) return;
+        const file = await handle.getFile();
+        openFile(file);
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;   // 사용자가 그냥 닫은 경우는 조용히 넘긴다
+        /* 미지원·권한·보안 오류는 아무 말 없이 <input> 으로 폴백 */
+      }
+    }
+    ui.fileInput.click();
+  }
+
   /* ---------------- opening a file ---------------- */
   async function openFile(file) {
     if (!file) return;
@@ -546,6 +581,8 @@
       }
       [ui.openBtn, ui.saveBtn, ui.modeToggle].forEach((b) => { b.disabled = false; });
       ui.docMeter.hidden = false;
+      state.userScale = 1;
+      applyUserScale();
       toast(`${file.name} · ${sections.length}개 본문을 열었습니다`);
       window.scrollTo({ top: 0 });
     } catch (err) {
@@ -982,7 +1019,8 @@
 
   /* 좁은 화면: 용지 폭에 맞춰 페이지 전체를 축소(레이아웃은 그대로 유지) */
   function fitPages() {
-    const avail = ui.doc.clientWidth;
+    /* #doc 에 사용자 배율(zoom)이 걸려 있어도 흔들리지 않도록 바깥 상자 폭을 잰다 */
+    const avail = (ui.docWrap && ui.docWrap.clientWidth) || ui.doc.clientWidth;
     if (!avail) return;
     for (const page of ui.doc.querySelectorAll('.page')) {
       const w = parseFloat(page.dataset.pageWidth || '0');
@@ -990,6 +1028,118 @@
       const zoom = w > avail + 0.5 ? Math.max(0.3, avail / w) : 1;
       page.style.zoom = zoom < 0.999 ? String(round(zoom, 4)) : '';
     }
+  }
+
+  /* ---------------- 문서 확대/축소 -------------
+     fitPages 가 좁은 화면에서 용지를 폭에 맞춰 줄여 두는데, 그 위에 사용자가 고른 배율을
+     한 겹 더 얹어 #doc 에 zoom 을 건다. CSS zoom 은 배치 자체를 다시 그리므로 사진처럼
+     흐려지지 않고, 넘친 만큼은 .doc-wrap 이 가로로 스크롤된다. */
+  const ZOOM_MIN = 0.6;
+  const ZOOM_MAX = 2.5;
+  const ZOOM_STEPS = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
+
+  function zoomPercent() {
+    return Math.round(state.userScale * 100);
+  }
+
+  function applyUserScale() {
+    const s = state.userScale;
+    if (ui.doc) {
+      ui.doc.style.zoom = Math.abs(s - 1) < 0.001 ? '' : String(round(s, 4));
+      /* 확대해서 용지가 상자보다 넓어지면 가운데 정렬 때문에 왼쪽이 잘려 닿을 수 없게 된다.
+         그때는 왼쪽 끝을 기준으로 붙여 넘치는 쪽(오른쪽)만 스크롤되게 한다. */
+      ui.doc.classList.toggle('zoomed', s > 1.001);
+    }
+    if (ui.zoomReset) ui.zoomReset.textContent = zoomPercent() + '%';
+    if (ui.zoomIn) ui.zoomIn.disabled = s >= ZOOM_MAX - 0.001;
+    if (ui.zoomOut) ui.zoomOut.disabled = s <= ZOOM_MIN + 0.001;
+    if (ui.zoomBar) ui.zoomBar.hidden = !state.zip;
+  }
+
+  /* anchor(손가락·화면 기준점) 아래에 있던 문서 위치가 배율을 바꿔도 제자리에 남게 한다. */
+  function setUserScale(next, anchor) {
+    if (!state.zip) return;
+    const target = clamp(next, ZOOM_MIN, ZOOM_MAX);
+    if (Math.abs(target - state.userScale) < 0.001) return;
+    const wrap = ui.docWrap;
+    /* zoom 이 걸린 #doc 자신의 사각형은 배율이 반영되지 않으므로, 실제로 그려지는 용지 기준으로 잰다 */
+    const ref = ui.doc.querySelector('.page') || ui.doc;
+    const before = ref.getBoundingClientRect();
+    const atLeft = !wrap || wrap.scrollLeft <= 2;
+    const atTop = window.scrollY <= 4;
+    const viewX = anchor ? anchor.x : (atLeft ? before.left : window.innerWidth / 2);
+    const viewY = anchor ? anchor.y : (atTop ? before.top : window.innerHeight / 2);
+    const fx = before.width ? (viewX - before.left) / before.width : 0;
+    const fy = before.height ? (viewY - before.top) / before.height : 0;
+
+    state.userScale = target;
+    applyUserScale();
+
+    const after = ref.getBoundingClientRect();
+    const dx = (after.left + after.width * fx) - viewX;
+    const dy = (after.top + after.height * fy) - viewY;
+    if (wrap && wrap.scrollWidth > wrap.clientWidth + 1 && Math.abs(dx) > 0.5) {
+      wrap.scrollLeft = Math.max(0, wrap.scrollLeft + dx);
+    }
+    if (Math.abs(dy) > 0.5) window.scrollBy(0, dy);
+  }
+
+  function stepUserScale(dir) {
+    const cur = state.userScale;
+    let next;
+    if (dir > 0) {
+      next = ZOOM_STEPS.find((s) => s > cur + 0.001);
+      if (next == null) next = ZOOM_MAX;
+    } else {
+      const lower = ZOOM_STEPS.filter((s) => s < cur - 0.001);
+      next = lower.length ? lower[lower.length - 1] : ZOOM_MIN;
+    }
+    setUserScale(next);
+  }
+
+  /* 두 손가락 집기 — 문서 위에서 브라우저 기본 확대가 막혀 있어도 문서 배율이 바뀌게. */
+  let pinching = false;
+  let pinchEndAt = 0;
+  let pinchStartDistance = 0;
+  let pinchStartScale = 1;
+  let pinchAnchor = null;
+  let pinchFrame = 0;
+  let pinchTarget = null;
+
+  const touchDistance = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const touchMiddle = (t) => ({
+    x: (t[0].clientX + t[1].clientX) / 2,
+    y: (t[0].clientY + t[1].clientY) / 2,
+  });
+
+  function beginPinch(e) {
+    if (!state.zip || !e.touches || e.touches.length !== 2) return;
+    pinching = true;
+    pinchStartDistance = touchDistance(e.touches) || 1;
+    pinchStartScale = state.userScale;
+    pinchAnchor = touchMiddle(e.touches);
+  }
+
+  function movePinch(e) {
+    if (!pinching || !e.touches || e.touches.length !== 2) return;
+    const d = touchDistance(e.touches);
+    pinchTarget = clamp(pinchStartScale * (d / pinchStartDistance), ZOOM_MIN, ZOOM_MAX);
+    if (pinchFrame) return;
+    pinchFrame = requestAnimationFrame(() => {
+      pinchFrame = 0;
+      const target = pinchTarget;
+      pinchTarget = null;
+      if (target != null) setUserScale(target, pinchAnchor);
+    });
+  }
+
+  function endPinch(e) {
+    if (!pinching) return;
+    if (e && e.touches && e.touches.length >= 2) return;
+    pinching = false;
+    pinchEndAt = Date.now();
+    pinchAnchor = null;
+    pinchTarget = null;
   }
 
   /* ---------------- blocks ---------------- */
@@ -2067,6 +2217,8 @@
 
   function shouldIgnoreFullscreenTap(e) {
     if (!state.zip || state.mode === 'edit') return true;
+    /* 집는 중이거나 방금 집기를 끝낸 손짓은 누름으로 보지 않는다 */
+    if (pinching || Date.now() - pinchEndAt < 350) return true;
     const t = e.target;
     if (!t || !t.closest) return true;
     if (t.closest('button, a, input, select, textarea, label, [contenteditable="true"]')) return true;
@@ -2152,8 +2304,8 @@
 
   /* ---------------- events ---------------- */
   function bind() {
-    ui.openBtn.addEventListener('click', () => ui.fileInput.click());
-    ui.dzOpenBtn.addEventListener('click', () => ui.fileInput.click());
+    ui.openBtn.addEventListener('click', () => { pickDocument(); });
+    ui.dzOpenBtn.addEventListener('click', () => { pickDocument(); });
     ui.fileInput.addEventListener('change', () => {
       const file = ui.fileInput.files && ui.fileInput.files[0];
       ui.fileInput.value = '';
@@ -2166,6 +2318,27 @@
     });
 
     ui.saveBtn.addEventListener('click', saveHwpx);
+
+    /* 확대/축소 막대 — 한 번 누를 때마다 한 단계씩 */
+    if (ui.zoomIn) ui.zoomIn.addEventListener('click', () => stepUserScale(1));
+    if (ui.zoomOut) ui.zoomOut.addEventListener('click', () => stepUserScale(-1));
+    if (ui.zoomReset) ui.zoomReset.addEventListener('click', () => setUserScale(1));
+
+    /* 문서 위 두 손가락 집기: 브라우저 기본 확대 대신 문서 배율을 바꾼다 */
+    if (ui.docWrap) {
+      ui.docWrap.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 2) return;
+        beginPinch(e);
+        if (pinching) e.preventDefault();
+      }, { passive: false });
+      ui.docWrap.addEventListener('touchmove', (e) => {
+        if (!pinching || e.touches.length < 2) return;
+        e.preventDefault();
+        movePinch(e);
+      }, { passive: false });
+      ui.docWrap.addEventListener('touchend', endPinch, { passive: true });
+      ui.docWrap.addEventListener('touchcancel', endPinch, { passive: true });
+    }
 
     ui.replaceBtn.addEventListener('click', () => {
       if (state.mode !== 'edit') return;
@@ -2202,6 +2375,18 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (state.zip) saveHwpx();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        stepUserScale(1);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault();
+        stepUserScale(-1);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        setUserScale(1);
       }
       if (e.key === 'Escape' && fullscreenOn()) setFullscreen(false);
     });

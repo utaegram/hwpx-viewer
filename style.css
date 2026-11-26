@@ -171,7 +171,18 @@ main { padding: 22px 16px 64px; }
 .dropzone a { color: var(--primary); font-weight: 700; text-decoration: none; border-bottom: 1px solid rgba(47, 107, 222, .35); }
 .dropzone a:hover { border-bottom-color: var(--primary); }
 
-.doc-wrap { max-width: 900px; margin: 0 auto; }
+.doc-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  /* 확대했을 때 용지가 넘치는 만큼 가로로 밀어 볼 수 있게 한다.
+     세로는 창 스크롤을 그대로 쓴다(높이를 잡지 않았으므로 세로 스크롤은 생기지 않는다). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  /* 두 손가락 집기는 브라우저 기본 확대 대신 app.js 가 문서 배율로 받아 낸다. */
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+}
 
 .edit-hint {
   display: none;
@@ -191,6 +202,11 @@ body.mode-edit .edit-hint { display: block; }
   flex-direction: column;
   align-items: center;
   gap: 20px;
+}
+/* 확대해서 용지가 상자보다 넓어지면 왼쪽 끝에 붙여 오른쪽으로만 넘치게 한다
+   (가운데 정렬이면 왼쪽으로 넘친 부분은 스크롤로 닿을 수 없다). */
+.doc-pages.zoomed {
+  align-items: flex-start;
 }
 
 .page {
@@ -349,7 +365,7 @@ body.mode-edit table.hp-tbl td[contenteditable] { cursor: text; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 28px;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 60;
   max-width: min(92vw, 560px);
@@ -394,11 +410,11 @@ body.is-fullscreen main {
 body.is-fullscreen .doc-wrap { max-width: 100%; }
 body.is-fullscreen .page-foot { opacity: .55; }
 
-/* 오른쪽 아래에 은은하게 남기는 쪽 표시 */
+/* 오른쪽 아래에 은은하게 남기는 쪽 표시 (확대/축소 막대 위에 놓는다) */
 .fs-meter {
   position: fixed;
   right: 14px;
-  bottom: 16px;
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
   z-index: 25;
   padding: 5px 11px;
   font-size: 11.5px;
@@ -414,6 +430,59 @@ body.is-fullscreen .page-foot { opacity: .55; }
 body.is-fullscreen .fs-meter:not([hidden]) { display: block; opacity: 1; }
 body.is-fullscreen .fs-meter[hidden] { display: none; }
 
+/* ---------- 문서 확대/축소 막대 ----------
+   읽기·편집 어느 모드에서도 오른쪽 아래에서 한 손으로 누를 수 있게 둔다. */
+.zoom-bar {
+  position: fixed;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 27;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(24, 34, 50, .16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.zoom-bar button {
+  appearance: none;
+  font: inherit;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  width: 36px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .12s;
+}
+.zoom-bar button:active:not(:disabled) { background: #eef3fe; }
+.zoom-bar button:disabled { opacity: .3; cursor: default; }
+.zoom-bar #zoomReset {
+  width: 58px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {
   .app-header { padding: 0 10px; gap: 8px; }
@@ -426,6 +495,8 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
   .dropzone h1 { font-size: 18px; }
   .doc-pages { gap: 12px; }
   .doc-wrap { max-width: 100%; }
+  .zoom-bar { right: 8px; }
+  .zoom-bar button { width: 34px; height: 30px; }
   .replace-panel { padding: 8px 10px; gap: 8px; }
   .rp-field { min-width: 110px; flex: 1 1 120px; }
   .doc-meter { font-size: 11.5px; }

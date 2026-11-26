@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
 <title>훈민정음</title>
 <meta name="description" content="브라우저에서 바로 열고 고치는 HWPX 뷰어·에디터. 파일은 서버로 전송되지 않습니다.">
 <meta name="theme-color" content="#2563eb">
@@ -67,9 +67,14 @@
 </main>
 
 <div class="fs-meter" id="fsMeter" hidden aria-hidden="true">1 / 1쪽</div>
+<div class="zoom-bar" id="zoomBar" hidden role="group" aria-label="문서 확대·축소">
+  <button type="button" id="zoomOut" aria-label="축소" title="축소">−</button>
+  <button type="button" id="zoomReset" aria-label="배율 100%로 되돌리기" title="100%로 되돌리기">100%</button>
+  <button type="button" id="zoomIn" aria-label="확대" title="확대">+</button>
+</div>
 <div class="toast" id="toast" role="status" hidden></div>
 <div class="drop-overlay" id="dropOverlay" hidden><span>여기에 .hwpx 파일 떨어뜨리기</span></div>
-<input type="file" id="fileInput" accept="*/*" hidden>
+<input type="file" id="fileInput" accept=".hwpx,application/hwpx+zip,application/hwp+zip,application/zip,application/octet-stream,application/pdf,.hwp" hidden>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="app.js"></script>
