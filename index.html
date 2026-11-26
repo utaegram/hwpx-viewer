@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HWPX 뷰어 · 에디터</title>
+<meta name="description" content="브라우저에서 바로 열고 고치는 HWPX 뷰어·에디터. 파일은 서버로 전송되지 않습니다.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="logo">HWPX</span>
+    <div class="file-meta">
+      <span class="fname" id="fileName">파일을 열어 주세요</span>
+      <span class="fstatus" id="fileStatus">읽기 전용 뷰어 · 100% 로컬 처리</span>
+    </div>
+  </div>
+  <div class="actions">
+    <div class="segmented" id="modeToggle" role="group" aria-label="보기 모드">
+      <button type="button" data-mode="read" class="on" aria-pressed="true" disabled>읽기</button>
+      <button type="button" data-mode="edit" aria-pressed="false" disabled>편집</button>
+    </div>
+    <button type="button" class="btn ghost" id="replaceBtn" disabled>찾아바꾸기</button>
+    <button type="button" class="btn primary" id="saveBtn" disabled>.hwpx 저장</button>
+    <button type="button" class="btn ghost" id="openBtn">파일 열기</button>
+  </div>
+</header>
+
+<div class="replace-panel" id="replacePanel" hidden>
+  <div class="rp-field"><label for="findInput">찾을 내용</label><input id="findInput" type="text" placeholder="예: 이상 없음"></div>
+  <div class="rp-field"><label for="replaceInput">바꿀 내용</label><input id="replaceInput" type="text" placeholder="예: 조치 완료"></div>
+  <button type="button" class="btn primary sm" id="replaceAllBtn">모두 바꾸기</button>
+  <button type="button" class="btn ghost sm" id="replaceCloseBtn">닫기</button>
+  <span class="rp-result" id="replaceResult"></span>
+</div>
+
+<main id="main">
+  <section class="dropzone" id="dropzone">
+    <div class="dz-inner">
+      <div class="dz-icon" aria-hidden="true">.hwpx</div>
+      <h1>HWPX 파일 열기</h1>
+      <p>.hwpx 파일을 이 화면으로 끌어다 놓거나, 파일 선택 버튼을 눌러 주세요.<br>
+         문서는 브라우저 안에서만 열리고 어디에도 전송되지 않습니다.</p>
+      <button type="button" class="btn primary lg" id="dzOpenBtn">파일 선택</button>
+      <p class="dz-note">한글(HWP) 문서의 XML 패키지 형식 · 읽기/편집/저장 지원</p>
+      <p class="dz-note"><a href="sample.hwpx" download>예제 .hwpx 파일 내려받기</a></p>
+    </div>
+  </section>
+
+  <section class="doc-wrap" id="docWrap" hidden>
+    <p class="edit-hint" id="editHint">본문이나 표 셀을 눌러 바로 고칠 수 있습니다. 고친 곳은 노란색으로 표시됩니다.</p>
+    <article class="page" id="doc" aria-label="문서 본문"></article>
+    <p class="page-foot">HWPX Viewer · 브라우저에서 로컬로 처리됨</p>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<div class="drop-overlay" id="dropOverlay" hidden><span>여기에 .hwpx 파일 떨어뜨리기</span></div>
+<input type="file" id="fileInput" accept=".hwpx" hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
