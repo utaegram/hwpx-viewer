@@ -20,6 +20,18 @@ body.is-fullscreen { --view-top: 0px; }
 
 [hidden] { display: none !important; }
 
+/* ---------- 앱 셸 ----------
+   창(window)은 절대 스크롤하지 않는다. 화면 높이를 꽉 채운 상자 안에서 .doc-wrap 만
+   스스로 스크롤한다. 창이 스크롤되면 안드로이드 크롬은 주소창을 접었다 펴는데, 그때마다
+   100dvh 가 56px 씩 출렁여 문서가 위아래로 밀리고, 손가락으로 문서를 만질 때마다
+   문서가 따라 움직이는 증상이 생겼다. 스크롤을 안쪽 상자에만 두면 주소창이 움직일 일이
+   없고, 100% 배율에서 용지가 화면 안에 다 들어오면 그 상자에는 스크롤할 여지가 0 이라
+   손가락을 아무리 밀어도 문서가 1px 도 움직이지 않는다. */
+html {
+  height: 100%;
+  overflow: hidden;   /* 창 스크롤 없음 — 주소창 들썩임·고무줄 튕김의 근원을 없앤다 */
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -36,12 +48,17 @@ html, body {
   overscroll-behavior-x: none;
 }
 
-body { min-height: 100vh; }
+body {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
 /* ---------- header ---------- */
 .app-header {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: none;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -153,8 +170,8 @@ body { min-height: 100vh; }
 
 /* ---------- replace panel ---------- */
 .replace-panel {
-  position: sticky;
-  top: var(--header-h);
+  position: relative;
+  flex: none;
   z-index: 20;
   display: flex;
   align-items: flex-end;
@@ -180,9 +197,23 @@ body { min-height: 100vh; }
 .rp-result { font-size: 12.5px; font-weight: 700; color: var(--primary); align-self: center; }
 
 /* ---------- layout ---------- */
-main { padding: 22px 16px 64px; }
+/* 문서를 연 뒤에는 main 이 스크롤하지 않는다(.doc-wrap 이 맡는다).
+   첫 화면(파일 열기)만 main 이 스크롤해도 된다. */
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 22px 16px 40px;
+}
+body.has-doc main { overflow: hidden; padding: 12px 16px 0; }
 
 .dropzone {
+  flex: none;
   max-width: 720px;
   margin: 4vh auto 0;
   background: var(--surface);
@@ -209,23 +240,28 @@ main { padding: 22px 16px 64px; }
 .dropzone a { color: var(--primary); font-weight: 700; text-decoration: none; border-bottom: 1px solid rgba(47, 107, 222, .35); }
 .dropzone a:hover { border-bottom-color: var(--primary); }
 
+/* 문서 영역 — 앱 셸 안에서 남은 높이를 모두 차지하는 유일한 스크롤 상자.
+   넘치지 않는 축은 app.js(syncScrollLock)가 overflow 를 hidden 으로 잠가,
+   100% 배율에서는 손가락을 밀어도 1px 도 움직이지 않는다. */
 .doc-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   max-width: 900px;
   margin: 0 auto;
-  /* 확대했을 때 용지가 넘치는 만큼 가로로 밀어 볼 수 있게 한다.
-     세로는 창 스크롤을 그대로 쓴다(높이를 잡지 않았으므로 세로 스크롤은 생기지 않는다). */
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto;
+  padding-bottom: 28px;
   -webkit-overflow-scrolling: touch;
   /* 두 손가락 집기는 브라우저 기본 확대 대신 app.js 가 문서 배율로 받아 낸다. */
   touch-action: pan-x pan-y;
-  /* 이 상자에 overscroll-behavior: contain 을 걸면 안 된다.
-     overflow-x: auto 인 순간 이 상자는 세로로도 스크롤 상자가 되는데, contain 은 그 상자가
-     끝에 닿았을 때 위(창)로 스크롤을 넘기지 않는다. 그래서 문서 위에서 시작한 손가락 손짓이
-     창 스크롤에 닿지 못해, 연속 보기에서 아래로 내려가지 않는 증상이 생겼다.
-     가로·세로 모두 넘겨 주고, 당겨서 새로고침은 body 의 overscroll-behavior 로 막는다. */
-  overscroll-behavior: auto;
+  /* 이 상자가 마지막 스크롤 상자다 — 여기서 스크롤이 새어 나가 창·주소창이 움직이지 않게 */
+  overscroll-behavior: contain;
+  /* 좌우 흔들림 방지: 넘치지 않는 동안은 세로 손짓만 받는다 */
+  scroll-behavior: auto;
 }
+/* 넘치지 않는 축은 스크롤 상자에서 아예 잠근다 (1px 짜리 밀림까지 막는다) */
+.doc-wrap.lock-y { overflow-y: hidden; }
+.doc-wrap.lock-x { overflow-x: hidden; }
 
 .edit-hint {
   display: none;
@@ -245,6 +281,9 @@ body.mode-edit .edit-hint { display: block; }
   flex-direction: column;
   align-items: center;
   gap: 20px;
+  /* 스크롤 상자의 보이는 높이를 최소 높이로 — 용지가 들어가면 이 안에서 가운데 서고,
+     확대해 더 커지면 이 값이 무시되어 위쪽부터 스크롤된다. */
+  min-height: 100%;
 }
 /* 확대해서 용지가 상자보다 넓어지면 왼쪽 끝에 붙여 오른쪽으로만 넘치게 한다
    (가운데 정렬이면 왼쪽으로 넘친 부분은 스크롤로 닿을 수 없다). */
@@ -451,7 +490,7 @@ body.is-fullscreen .app-header {
   pointer-events: none;
 }
 body.is-fullscreen main {
-  padding: 10px 6px 40px;
+  padding: 8px 6px 0;
 }
 body.is-fullscreen .doc-wrap { max-width: 100%; }
 body.is-fullscreen .page-foot { opacity: .55; }
@@ -481,9 +520,12 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
    margin 자동을 준다. 용지가 들어가면 정확히 가운데 서고, 확대해 용지가 더 커지면
    자동 여백이 0 이 되어 위·왼쪽이 잘리지 않고 그대로 스크롤된다(flex 가운데 정렬의
    "넘칠 때 위가 잘리는" 문제를 피하는 검증된 방식). */
-body.view-single main { padding-top: 0; padding-bottom: 0; }
-body.is-fullscreen.view-single main { padding: 0; }
-body.view-single .doc-pages { min-height: calc(100dvh - var(--view-top)); padding-block: 10px; }
+body.view-single main { padding: 0 16px; }
+body.is-fullscreen.view-single main { padding: 0 6px; }
+/* 창 높이(dvh) 대신 스크롤 상자의 실제 높이를 그대로 쓴다 — 주소창이 접히고 펴져도
+   가운데 정렬이 출렁이지 않는다. */
+body.view-single .doc-wrap { padding-bottom: 0; }
+body.view-single .doc-pages { min-height: 100%; }
 body.view-single .doc-pages > .page:not(.is-hidden) { margin-block: auto; }
 /* 1쪽 볼 때는 아래 문구를 접어 가운데 정렬을 정확하게 */
 body.view-single .page-foot { display: none; }
@@ -619,7 +661,9 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
   .fname { max-width: 42vw; font-size: 13px; }
   .actions { gap: 4px; }
   .actions .btn { padding: 6px 9px; font-size: 12px; }
-  main { padding: 14px 8px 48px; }
+  main { padding: 14px 8px 28px; }
+  body.has-doc main { padding: 10px 8px 0; }
+  body.view-single main { padding: 0 8px; }
   .dropzone { padding: 40px 18px; margin-top: 2vh; }
   .dropzone h1 { font-size: 18px; }
   .doc-pages { gap: 12px; }

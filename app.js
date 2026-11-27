@@ -674,6 +674,7 @@
       ui.fileName.title = file.name;
       ui.dropzone.hidden = true;
       ui.docWrap.hidden = false;
+      document.body.classList.add('has-doc');
       ui.replacePanel.hidden = true;
       ui.replaceResult.textContent = '';
       await ensureFonts();
@@ -700,7 +701,7 @@
       saveLastDoc(file.name, buffer);
       if (opts && opts.restored) toast(`마지막에 보던 문서를 다시 열었습니다 · ${file.name}`);
       else toast(`${file.name} · ${sections.length}개 본문을 열었습니다`);
-      window.scrollTo({ top: 0 });
+      resetDocScroll();
       return true;
     } catch (err) {
       console.error(err);
@@ -713,7 +714,8 @@
   /* ---------------- rendering ---------------- */
   function renderDocument() {
     if (!state.zip) return;
-    const scrollY = window.scrollY;
+    const wrapEl = ui.docWrap;
+    const keepTop = wrapEl ? wrapEl.scrollTop : 0;
     ui.doc.textContent = '';
     state.nodeMap = new WeakMap();
     ui.doc.classList.toggle('is-edit', state.mode === 'edit');
@@ -740,9 +742,10 @@
     balancePages();
     finalizePages();
     fitPages();
+    syncScrollLock();
     updateStatus();
     applyViewMode();
-    window.scrollTo({ top: scrollY });
+    if (wrapEl) wrapEl.scrollTop = keepTop;
   }
 
   /* 글꼴 교체 등으로 장이 조금 넘치면 마지막 덩어리를 나누거나 다음 장으로 넘긴다 */
@@ -1148,6 +1151,30 @@
     }
   }
 
+  /* ---------------- 스크롤 잠금 ----------------
+     .doc-wrap 은 넘치는 만큼만 스크롤하는 상자다. 그런데 딱 들어오는 100% 배율에서도
+     1~2px 남짓 넘치거나(용지 테두리·반올림), 용지가 들어오는데도 overflow: auto 가
+     손짓을 받아 주면 문서가 그만큼 밀린다. 그래서 다 들어오는 축은 overflow 를 hidden 으로
+     아예 잠가 스크롤할 틈을 없앤다. 확대해서 화면보다 커진 축만 스크롤이 살아난다. */
+  const LOCK_SLACK = 1.5;
+  function syncScrollLock() {
+    const wrap = ui.docWrap;
+    if (!wrap || wrap.hidden || !state.zip) return;
+    /* 두 번 돌린다: 한 축을 잠그면 스크롤바가 사라져 다른 축의 여유가 조금 달라진다 */
+    for (let i = 0; i < 2; i++) {
+      wrap.classList.toggle('lock-y', wrap.scrollHeight - wrap.clientHeight <= LOCK_SLACK);
+      wrap.classList.toggle('lock-x', wrap.scrollWidth - wrap.clientWidth <= LOCK_SLACK);
+    }
+    if (wrap.classList.contains('lock-y') && wrap.scrollTop) wrap.scrollTop = 0;
+    if (wrap.classList.contains('lock-x') && wrap.scrollLeft) wrap.scrollLeft = 0;
+  }
+
+  function resetDocScroll() {
+    const wrap = ui.docWrap;
+    if (wrap) { wrap.scrollTop = 0; wrap.scrollLeft = 0; }
+    window.scrollTo({ top: 0, left: 0 });
+  }
+
   /* ---------------- 문서 확대/축소 -------------
      fitPages 가 좁은 화면에서 용지를 폭에 맞춰 줄여 두는데, 그 위에 사용자가 고른 배율을
      한 겹 더 얹어 #doc 에 zoom 을 건다. CSS zoom 은 배치 자체를 다시 그리므로 사진처럼
@@ -1184,7 +1211,7 @@
     const ref = ui.doc.querySelector('.page') || ui.doc;
     const before = ref.getBoundingClientRect();
     const atLeft = !wrap || wrap.scrollLeft <= 2;
-    const atTop = window.scrollY <= 4;
+    const atTop = !wrap || wrap.scrollTop <= 2;
     const viewX = anchor ? anchor.x : (atLeft ? before.left : window.innerWidth / 2);
     const viewY = anchor ? anchor.y : (atTop ? before.top : window.innerHeight / 2);
     const fx = before.width ? (viewX - before.left) / before.width : 0;
@@ -1192,6 +1219,7 @@
 
     state.userScale = target;
     applyUserScale();
+    syncScrollLock();
 
     const after = ref.getBoundingClientRect();
     const dx = (after.left + after.width * fx) - viewX;
@@ -1199,7 +1227,9 @@
     if (wrap && wrap.scrollWidth > wrap.clientWidth + 1 && Math.abs(dx) > 0.5) {
       wrap.scrollLeft = Math.max(0, wrap.scrollLeft + dx);
     }
-    if (Math.abs(dy) > 0.5) window.scrollBy(0, dy);
+    if (wrap && wrap.scrollHeight > wrap.clientHeight + 1 && Math.abs(dy) > 0.5) {
+      wrap.scrollTop = Math.max(0, Math.min(wrap.scrollTop + dy, wrap.scrollHeight - wrap.clientHeight));
+    }
   }
 
   function stepUserScale(dir) {
@@ -1343,13 +1373,15 @@
 
   /* 1쪽 보기: 고른 쪽만 남기고 나머지 .page 는 감춘다 */
   let flipScrollTimers = [];
+  /* 방금 쪽을 넘긴 손짓의 남은 관성으로 새 쪽이 대신 스크롤되는 것을 잠깐 막는 시각 */
+  let flipSettleUntil = 0;
   function clearFlipScroll() {
     flipScrollTimers.forEach((t) => clearTimeout(t));
     flipScrollTimers = [];
+    flipSettleUntil = 0;
   }
   function resetFlipScroll() {
-    window.scrollTo({ top: 0, left: 0 });
-    if (ui.docWrap) ui.docWrap.scrollLeft = 0;
+    resetDocScroll();
   }
 
   function showSinglePage(n, opts) {
@@ -1376,6 +1408,10 @@
           setTimeout(resetFlipScroll, 40),
           setTimeout(resetFlipScroll, 160),
         ];
+        /* 확대해 용지가 화면보다 큰 상태에서는 넘긴 손짓의 관성이 남아
+           새 쪽을 저 혼자 266px 쯤 밀어 버린다. 그동안은 제자리로 돌린다. */
+        flipSettleUntil = Date.now() + 700;
+        flipScrollTimers.push(setTimeout(() => { flipSettleUntil = 0; }, 700));
       }
     }
     updatePageInfo();
@@ -1392,6 +1428,8 @@
       pageEls().forEach((p) => p.classList.remove('is-hidden'));
       updatePageInfo();
     }
+    /* 보기 방식이 바뀌면 용지 폭·높이가 달라져 스크롤 잠금도 다시 정한다 */
+    syncScrollLock();
   }
 
   function setPageMode(mode) {
@@ -1405,16 +1443,17 @@
     applyViewMode();
     const pages = pageEls();
     if (!pages.length) return;
-    /* 보기 방식이 바뀌면 용지가 차지하는 폭이 달라져 배율도 다시 맞춘다 */
+    /* 보기 방식이 바뀌면 용지가 차지하는 폭·높이가 달라져 배율도 다시 맞춘다 */
     fitPages();
+    syncScrollLock();
     if (next === 'scroll') {
       /* 1쪽에서 보던 쪽부터 이어서 보여 준다 */
       const target = pages[clamp(keepPage, 1, pages.length) - 1];
       scrollPageIntoView(target, false);
     } else {
-      window.scrollTo({ top: 0, left: 0 });
-      if (ui.docWrap) ui.docWrap.scrollLeft = 0;
+      resetDocScroll();
     }
+    syncScrollLock();
     updatePageInfo();
   }
 
@@ -1432,28 +1471,28 @@
       ? null
       : pages[clamp(state.currentPage, 1, pages.length) - 1];
     fitPages();
+    syncScrollLock();
     if (target) scrollPageIntoView(target, false);
-    else { window.scrollTo({ top: 0, left: 0 }); if (ui.docWrap) ui.docWrap.scrollLeft = 0; }
+    else resetDocScroll();
     updatePageInfo();
   }
 
-  /* 쪽 하나를 화면 맨 위(가로 보기에서는 맨 왼쪽)에 맞춘다.
-     scrollIntoView 는 .doc-wrap 같은 중간 스크롤 상자에 먼저 붙잡혀 엉뚱한 곳으로 가므로
-     창과 가로 스크롤 위치를 직접 계산해 옮긴다. */
+  /* 쪽 하나를 스크롤 상자의 맨 위(가로 보기에서는 맨 왼쪽)에 맞춘다.
+     scrollIntoView 는 상자 안의 다른 오프셋까지 건드려 엉뚱한 곳으로 가므로
+     스크롤 위치를 직접 계산해 옮긴다. 작성한 쪽은 이제 .doc-wrap 이 스크롤한다. */
   function scrollPageIntoView(page, smooth) {
-    if (!page) return;
+    const wrap = ui.docWrap;
+    if (!page || !wrap) return;
     const behavior = smooth ? 'smooth' : 'auto';
-    const header = document.querySelector('.app-header');
-    const headerH = header ? header.getBoundingClientRect().bottom : 0;
-    const top = page.getBoundingClientRect().top + window.scrollY - (fullscreenOn() ? 8 : headerH + 8);
-    window.scrollTo({ top: Math.max(0, top), behavior });
-    if (isHorizontal() && ui.docWrap) {
-      const wrap = ui.docWrap;
-      const wr = wrap.getBoundingClientRect();
-      const pr = page.getBoundingClientRect();
-      const left = wrap.scrollLeft + (pr.left - wr.left);
-      if (wrap.scrollTo) wrap.scrollTo({ left: Math.max(0, left), behavior });
-      else wrap.scrollLeft = Math.max(0, left);
+    const wr = wrap.getBoundingClientRect();
+    const pr = page.getBoundingClientRect();
+    const top = Math.max(0, wrap.scrollTop + (pr.top - wr.top) - 8);
+    if (wrap.scrollTo) wrap.scrollTo({ top, behavior });
+    else wrap.scrollTop = top;
+    if (isHorizontal()) {
+      const left = Math.max(0, wrap.scrollLeft + (pr.left - wr.left));
+      if (wrap.scrollTo) wrap.scrollTo({ left, behavior });
+      else wrap.scrollLeft = left;
     }
   }
 
@@ -1481,35 +1520,31 @@
   }
 
   /* 1쪽 보기에서 그 방향으로 더 밀 수 있는 여지(px).
-     세로 보기의 스크롤은 창(window), 가로 보기의 스크롤은 .doc-wrap 이 맡는다.
+     세로·가로 모두 .doc-wrap 이 스크롤 상자다.
      dir>0 이면 다음 쪽으로 가는 방향(아래/오른쪽), dir<0 이면 이전 쪽 방향.
      이 값이 0 에 가까우면 "그 방향으로는 더 밀 데가 없다"는 뜻이라 손짓을 쪽 넘김으로
      받아 준다. 여지가 있으면 그 손짓은 스크롤이다. */
   function flipRoom(dir) {
+    const w = ui.docWrap;
+    if (!w) return 0;
     if (isHorizontal()) {
-      const w = ui.docWrap;
-      if (!w) return 0;
       const room = dir > 0 ? (w.scrollWidth - w.clientWidth - w.scrollLeft) : w.scrollLeft;
       return Math.max(0, Math.round(room));
     }
-    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    const room = dir > 0 ? (maxScroll - window.scrollY) : window.scrollY;
+    const room = dir > 0 ? (w.scrollHeight - w.clientHeight - w.scrollTop) : w.scrollTop;
     return Math.max(0, Math.round(room));
   }
 
-  /* 끝에 닿았다고 볼 여유(px) — 브라우저 주소창이 접히며 생기는 몇 px 차이는 무시한다 */
+  /* 끝에 닿았다고 볼 여유(px) — 확대했을 때 남는 몇 px 은 넘김으로 본다 */
   const FLIP_EDGE = 24;
   const atFlipEdge = (dir) => flipRoom(dir) <= FLIP_EDGE;
 
   /* 넘김 직전에 남은 몇 px 를 끝까지 붙여 건너뛰는 내용이 없게 한다 */
   function settleFlipEdge(forward) {
-    if (isHorizontal()) {
-      const w = ui.docWrap;
-      if (w) w.scrollLeft = forward ? w.scrollWidth : 0;
-      return;
-    }
-    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    window.scrollTo({ top: forward ? Math.max(0, maxScroll) : 0, left: 0 });
+    const w = ui.docWrap;
+    if (!w) return;
+    if (isHorizontal()) w.scrollLeft = forward ? w.scrollWidth : 0;
+    else w.scrollTop = forward ? w.scrollHeight : 0;
   }
 
   /* ---------------- blocks ---------------- */
@@ -2556,14 +2591,14 @@
       });
       state.currentPage = cur;
     } else {
-      const header = document.querySelector('.app-header');
-      const line = (header ? header.getBoundingClientRect().bottom : 52) + 48;
+      const wrap = ui.docWrap;
+      const line = (wrap ? wrap.getBoundingClientRect().top : 0) + 48;
       pages.forEach((p, i) => {
         if (p.getBoundingClientRect().top <= line) cur = i + 1;
       });
-      /* 문서 끝까지 내려왔으면 마지막 쪽이 지금 쪽이다(마지막 쪽은 위에 닿을 수 없다) */
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      if (maxScroll > 0 && window.scrollY >= maxScroll - 2) cur = pages.length;
+      /* 스크롤 상자의 끝까지 내려왔으면 마지막 쪽이 지금 쪽이다(마지막 쪽은 위에 닿을 수 없다) */
+      const maxScroll = wrap ? wrap.scrollHeight - wrap.clientHeight : 0;
+      if (maxScroll > 0 && wrap && wrap.scrollTop >= maxScroll - 2) cur = pages.length;
       state.currentPage = cur;
     }
     const text = `${cur} / ${pages.length}쪽`;
@@ -2592,7 +2627,7 @@
     document.body.classList.toggle('is-fullscreen', next);
     clearTimeout(fullscreenTimer);
     /* 머리말이 사라진 높이에 맞춰 용지 폭을 다시 계산한다 */
-    fullscreenTimer = setTimeout(() => { fitPages(); updatePageInfo(); }, 260);
+    fullscreenTimer = setTimeout(() => { fitPages(); syncScrollLock(); updatePageInfo(); }, 260);
   }
 
   function toggleFullscreen() {
@@ -2795,7 +2830,13 @@
       };
     }, { passive: true });
     ui.main.addEventListener('touchmove', (e) => {
-      if (!swipe || swipe.done || !e.touches || e.touches.length !== 1) return;
+      if (!swipe) return;
+      /* 이미 쪽을 넘긴 손짓 — 남은 움직임이 새 쪽을 스크롤하지 않게 계속 막는다 */
+      if (swipe.done) {
+        if (e.cancelable) { try { e.preventDefault(); } catch (err) { /* 그냥 넘어간다 */ } }
+        return;
+      }
+      if (!e.touches || e.touches.length !== 1) return;
       const t = e.touches[0];
       swipe.lx = t.clientX;
       swipe.ly = t.clientY;
@@ -2909,7 +2950,7 @@
     let resizeTimer = null;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { fitPages(); updatePageInfo(); }, 120);
+      resizeTimer = setTimeout(() => { fitPages(); syncScrollLock(); updatePageInfo(); }, 120);
     });
 
     let scrollFrame = 0;
@@ -2925,6 +2966,11 @@
     if (ui.docWrap) {
       let wrapFrame = 0;
       ui.docWrap.addEventListener('scroll', () => {
+        /* 넘김 직후 잠깐 — 손짓의 남은 관성이 만든 스크롤은 되돌린다 */
+        if (flipSettleUntil && Date.now() < flipSettleUntil) {
+          if (ui.docWrap.scrollTop) ui.docWrap.scrollTop = 0;
+          if (ui.docWrap.scrollLeft) ui.docWrap.scrollLeft = 0;
+        }
         if (wrapFrame) return;
         wrapFrame = requestAnimationFrame(() => {
           wrapFrame = 0;
