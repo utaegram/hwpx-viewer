@@ -1299,24 +1299,30 @@
     const single = state.pageMode === 'single';
     const h = isHorizontal();
     if (ui.viewToggle) {
-      /* 누르면 바뀔 쪽을 이름으로 보여 준다 (편집/읽기 단추와 같은 방식) */
-      ui.viewToggle.textContent = single ? '연속' : '1쪽';
-      ui.viewToggle.title = single ? '쪽을 이어서 보기' : '한 쪽씩 보기';
+      /* 단추에는 지금 보고 있는 상태를 그대로 적는다(누르면 바뀔 상태가 아니라).
+         연속 보기면 '연속', 1쪽 보기면 '1쪽' — 눈에 보이는 화면과 단추 글자가 어긋나지 않게. */
+      ui.viewToggle.textContent = single ? '1쪽' : '연속';
+      ui.viewToggle.title = single ? '지금 1쪽 보기 · 누르면 연속 보기' : '지금 연속 보기 · 누르면 1쪽 보기';
+      ui.viewToggle.setAttribute('aria-label', ui.viewToggle.title);
       ui.viewToggle.setAttribute('aria-pressed', String(single));
       ui.viewToggle.classList.toggle('on', single);
     }
     if (ui.dirToggle) {
-      /* 이것도 누르면 바뀔 방향을 보여 준다: 지금 세로면 ↔(가로로), 가로면 ↕(세로로) */
-      ui.dirToggle.textContent = h ? '↕' : '↔';
-      const label = h ? '세로로 보기' : '가로로 보기';
+      /* 방향도 지금 상태를 보여 준다: 가로면 ↔, 세로면 ↕ */
+      ui.dirToggle.textContent = h ? '↔' : '↕';
+      const label = h ? '지금 가로 보기 · 누르면 세로 보기' : '지금 세로 보기 · 누르면 가로 보기';
       ui.dirToggle.title = label;
       ui.dirToggle.setAttribute('aria-label', label);
       ui.dirToggle.setAttribute('aria-pressed', String(h));
+      ui.dirToggle.classList.toggle('on', h);
     }
     if (ui.pageNav) {
       ui.pageNav.hidden = !(state.zip && single);
-      /* 세로로 볼 때는 ‹ › 를 90도 돌려 위아래 화살표로 보이게 한다 (CSS) */
-      ui.pageNav.classList.toggle('axis-v', !h);
+      /* 세로로 볼 때는 '이전/다음'이 위/아래라는 것을 화살표 글자로 바꿔 알린다.
+         예전에는 ‹ › 를 90도 돌렸는데, 보이는 화살표는 단추 밖까지 뻗는데 눌리는
+         자리는 그대로여서 화살표 끝을 누르면 빗나갔다. */
+      if (ui.pagePrev) ui.pagePrev.textContent = h ? '‹' : '↑';
+      if (ui.pageNext) ui.pageNext.textContent = h ? '›' : '↓';
     }
     document.body.classList.toggle('view-single', single);
     document.body.classList.toggle('axis-h', h);
@@ -1336,6 +1342,16 @@
   }
 
   /* 1쪽 보기: 고른 쪽만 남기고 나머지 .page 는 감춘다 */
+  let flipScrollTimers = [];
+  function clearFlipScroll() {
+    flipScrollTimers.forEach((t) => clearTimeout(t));
+    flipScrollTimers = [];
+  }
+  function resetFlipScroll() {
+    window.scrollTo({ top: 0, left: 0 });
+    if (ui.docWrap) ui.docWrap.scrollLeft = 0;
+  }
+
   function showSinglePage(n, opts) {
     const pages = pageEls();
     if (!pages.length) return;
@@ -1350,8 +1366,17 @@
       pageFlipAnim = target.animate(flipFrames(idx >= prev), { duration: FLIP_MS, easing: FLIP_EASE });
     }
     if (!opts || opts.scroll !== false) {
-      window.scrollTo({ top: 0, left: 0 });
-      if (ui.docWrap) ui.docWrap.scrollLeft = 0;
+      resetFlipScroll();
+      /* 손짓을 받아 넘기는 중에는 브라우저가 그 손짓의 남은 움직임으로 새 쪽을 대신
+         스크롤해 버릴 수 있다(확대해 용지가 화면보다 길 때). 넘긴 직후 잠깐만 제자리로
+         되돌리고, 다음 손짓이 시작되면 그만둔다. */
+      clearFlipScroll();
+      if (animate) {
+        flipScrollTimers = [
+          setTimeout(resetFlipScroll, 40),
+          setTimeout(resetFlipScroll, 160),
+        ];
+      }
     }
     updatePageInfo();
   }
@@ -1438,7 +1463,14 @@
     if (!pages.length) return;
     const idx = clamp(Math.round(n) || 1, 1, pages.length);
     if (state.pageMode === 'single') {
-      if (idx === state.currentPage) return;
+      /* 화면에 실제로 남아 있는 쪽을 기준으로 판단한다 — state 와 화면이 어긋나도
+         "이미 그 쪽이라 안 넘어간다"로 막히지 않게. */
+      const shown = pages.findIndex((p) => !p.classList.contains('is-hidden')) + 1;
+      if (idx === shown) {
+        state.currentPage = idx;
+        updatePageInfo();
+        return;
+      }
       lastPageFlipAt = Date.now();
       showSinglePage(idx, { animate: true, scroll: true });
     } else {
@@ -1448,9 +1480,36 @@
     }
   }
 
-  /* 1쪽 보기에서 위아래로 넘겨도 되는지 — 세로로 스크롤할 여지가 있으면 넘기지 않고 스크롤을 준다 */
-  function verticalRoomToScroll() {
-    return document.documentElement.scrollHeight > window.innerHeight + 4;
+  /* 1쪽 보기에서 그 방향으로 더 밀 수 있는 여지(px).
+     세로 보기의 스크롤은 창(window), 가로 보기의 스크롤은 .doc-wrap 이 맡는다.
+     dir>0 이면 다음 쪽으로 가는 방향(아래/오른쪽), dir<0 이면 이전 쪽 방향.
+     이 값이 0 에 가까우면 "그 방향으로는 더 밀 데가 없다"는 뜻이라 손짓을 쪽 넘김으로
+     받아 준다. 여지가 있으면 그 손짓은 스크롤이다. */
+  function flipRoom(dir) {
+    if (isHorizontal()) {
+      const w = ui.docWrap;
+      if (!w) return 0;
+      const room = dir > 0 ? (w.scrollWidth - w.clientWidth - w.scrollLeft) : w.scrollLeft;
+      return Math.max(0, Math.round(room));
+    }
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    const room = dir > 0 ? (maxScroll - window.scrollY) : window.scrollY;
+    return Math.max(0, Math.round(room));
+  }
+
+  /* 끝에 닿았다고 볼 여유(px) — 브라우저 주소창이 접히며 생기는 몇 px 차이는 무시한다 */
+  const FLIP_EDGE = 24;
+  const atFlipEdge = (dir) => flipRoom(dir) <= FLIP_EDGE;
+
+  /* 넘김 직전에 남은 몇 px 를 끝까지 붙여 건너뛰는 내용이 없게 한다 */
+  function settleFlipEdge(forward) {
+    if (isHorizontal()) {
+      const w = ui.docWrap;
+      if (w) w.scrollLeft = forward ? w.scrollWidth : 0;
+      return;
+    }
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    window.scrollTo({ top: forward ? Math.max(0, maxScroll) : 0, left: 0 });
   }
 
   /* ---------------- blocks ---------------- */
@@ -2696,35 +2755,65 @@
     }
 
     /* 1쪽 보기: 고른 방향의 손짓으로 쪽을 넘긴다(가로면 좌우, 세로면 상하).
-       확대해 둔 때(userScale > 1.05)는 그 축의 스크롤이 먼저이므로 넘기지 않는다.
-       세로 방향에서 페이지가 화면보다 길면 그 손짓은 스크롤로 둔다. */
+       그 방향으로 스크롤할 여지가 남아 있으면 그 손짓은 스크롤이다(확대했거나 용지가 화면보다
+       길 때). 끝(또는 처음)에 닿아 있으면 손짓을 쪽 넘김으로 처리한다.
+       예전에는 "문서에 세로 스크롤 여지가 1px라도 있으면 넘기지 않는다"는 조건 때문에
+       확대한 상태나 화면보다 긴 용지에서 몇 번을 밀어도 쪽이 넘어가지 않았다. */
     let swipe = null;
+
+    function decideSwipe(s, e) {
+      if (!s || s.done) return;
+      const h = isHorizontal();
+      const dx = s.lx - s.x;
+      const dy = s.ly - s.y;
+      const along = h ? dx : dy;
+      const across = h ? dy : dx;
+      const MIN = 42;
+      if (Math.abs(along) < MIN) return;
+      /* 다른 축으로 더 움직였으면 그 방향으로 스크롤하는 손짓이다 */
+      if (Math.abs(along) < Math.abs(across) * 1.2) return;
+      const forward = along < 0;                 // 손가락이 왼쪽/위로 → 다음 쪽
+      const room = forward ? s.roomF : s.roomB;   // 손대기 전에 그 방향으로 남아 있던 여지
+      if (room > FLIP_EDGE) return;              // 아직 스크롤할 데가 있다 → 이 손짓은 스크롤
+      s.done = true;
+      /* 넘김으로 정해졌으면 브라우저의 남은 스크롤(고무줄·번짐)을 막는다 */
+      if (e && e.cancelable) { try { e.preventDefault(); } catch (err) { /* 그냥 넘어간다 */ } }
+      /* 주소창이 접히는 등으로 생긴 몇 px 남은 부분은 건너뛰지 않게 끝까지 붙여 둔다 */
+      if (room > 0) settleFlipEdge(forward);
+      gotoPage(state.currentPage + (forward ? 1 : -1));
+    }
+
     ui.main.addEventListener('touchstart', (e) => {
       swipe = null;
+      clearFlipScroll();   // 새 손짓이 시작되면 넘김 직후의 자리 되돌리기는 그만
       if (state.pageMode !== 'single' || !state.zip) return;
       if (!e.touches || e.touches.length !== 1) return;
-      if (state.userScale > 1.05) return;
       const t = e.touches[0];
-      swipe = { x: t.clientX, y: t.clientY, done: false };
+      swipe = {
+        x: t.clientX, y: t.clientY, lx: t.clientX, ly: t.clientY, done: false,
+        roomF: flipRoom(1), roomB: flipRoom(-1),
+      };
     }, { passive: true });
     ui.main.addEventListener('touchmove', (e) => {
       if (!swipe || swipe.done || !e.touches || e.touches.length !== 1) return;
       const t = e.touches[0];
-      const dx = t.clientX - swipe.x;
-      const dy = t.clientY - swipe.y;
-      const h = isHorizontal();
-      const along = h ? Math.abs(dx) : Math.abs(dy);
-      const across = h ? Math.abs(dy) : Math.abs(dx);
-      /* 다른 축으로 더 움직였으면 그냥 그 방향으로 스크롤하는 손짓이다 */
-      if (across > along) { swipe = null; return; }
-      if (along < 56) return;
-      if (!h && verticalRoomToScroll()) { swipe = null; return; }
-      swipe.done = true;
-      const forward = h ? dx < 0 : dy < 0;
-      gotoPage(state.currentPage + (forward ? 1 : -1));
+      swipe.lx = t.clientX;
+      swipe.ly = t.clientY;
+      decideSwipe(swipe, e);
+    }, { passive: false });
+    ui.main.addEventListener('touchend', (e) => {
+      if (swipe && !swipe.done) {
+        const t = e.changedTouches && e.changedTouches[0];
+        if (t) { swipe.lx = t.clientX; swipe.ly = t.clientY; }
+        decideSwipe(swipe, null);
+      }
+      swipe = null;
     }, { passive: true });
-    ui.main.addEventListener('touchend', () => { swipe = null; }, { passive: true });
-    ui.main.addEventListener('touchcancel', () => { swipe = null; }, { passive: true });
+    /* 브라우저가 손짓을 스크롤로 가져가면 touchcancel 로 끊긴다 — 그때도 마지막 위치로 판단한다 */
+    ui.main.addEventListener('touchcancel', () => {
+      if (swipe && !swipe.done) decideSwipe(swipe, null);
+      swipe = null;
+    }, { passive: true });
 
     ui.replaceBtn.addEventListener('click', () => {
       if (state.mode !== 'edit') return;
@@ -2786,7 +2875,7 @@
           if ((single || h) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
             e.preventDefault();
             gotoPage(state.currentPage + (e.key === 'ArrowRight' ? 1 : -1));
-          } else if (single && !h && !verticalRoomToScroll() &&
+          } else if (single && !h && atFlipEdge(1) &&
                      (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
             e.preventDefault();
             gotoPage(state.currentPage + (e.key === 'ArrowDown' ? 1 : -1));

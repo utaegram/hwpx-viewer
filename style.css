@@ -507,7 +507,7 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
 .zoom-bar {
   position: fixed;
   right: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   z-index: 27;
   display: flex;
   align-items: center;
@@ -560,7 +560,8 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
 .page-nav {
   position: fixed;
   left: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  /* 안드로이드 하단 제스처 띠에 단추가 걸치지 않게 조금 띄운다 */
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   z-index: 27;
   display: flex;
   align-items: center;
@@ -599,9 +600,9 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
 }
 .page-nav button:active:not(:disabled) { background: #eef3fe; }
 .page-nav button:disabled { opacity: .28; cursor: default; }
-/* 세로로 볼 때는 ‹ › 를 돌려 위아래 화살표로 */
-.page-nav.axis-v #pagePrev,
-.page-nav.axis-v #pageNext { transform: rotate(90deg); }
+/* 세로로 볼 때는 위/아래 화살표 글자를 그대로 쓴다(회전은 보이는 화살표가 단추 밖으로
+   뻗어 눌리는 자리와 어긋났다). 손가락으로 정확히 누를 수 있게 판을 키운다. */
+.page-nav button { width: 44px; height: 38px; font-size: 20px; }
 .page-nav .pn-count {
   min-width: 62px;
   text-align: center;
@@ -626,7 +627,7 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
   .zoom-bar { right: 8px; }
   .zoom-bar button { width: 34px; height: 30px; }
   .page-nav { left: 8px; }
-  .page-nav button { width: 34px; height: 30px; }
+  .page-nav button { width: 42px; height: 36px; font-size: 19px; }
   .page-nav .pn-count { min-width: 56px; font-size: 11px; }
   .replace-panel { padding: 8px 10px; gap: 8px; }
   .rp-field { min-width: 110px; flex: 1 1 120px; }
