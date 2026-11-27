@@ -544,6 +544,43 @@ body.axis-h .doc-pages > .page { flex: 0 0 auto; }
 body.axis-h .doc-wrap { scroll-snap-type: x proximity; }
 body.axis-h .doc-pages > .page { scroll-snap-align: start; }
 
+/* ---------- 화면 맞춤(꽉 찬 비율) 단추 ----------
+   머리말의 [저장] 단추 바로 아래, 문서 영역 우측 상단에 띄우는 작은 알약.
+   저장 단추와 오른쪽 끝을 맞추고, 머리말이 걷히는 몰입 전체화면에서는 --view-top(0)을
+   따라 맨 위로 올라가 문서만 남은 화면과 어울린다. */
+.fit-btn {
+  position: fixed;
+  right: 16px;
+  top: calc(var(--view-top) + 8px);
+  z-index: 28;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  appearance: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(24, 34, 50, .14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: top .26s ease, background .15s, border-color .15s, color .15s;
+}
+.fit-btn svg { width: 13px; height: 13px; flex: none; }
+.fit-btn:hover { border-color: #cfd5df; background: #f7f9fc; }
+.fit-btn:active { transform: translateY(1px); }
+/* 지금 배율이 100%(화면 폭에 꽉 찬 상태)가 아니면 눌러 되돌리라는 신호로 파랗게 */
+.fit-btn.off { background: #eef3fe; border-color: #c9d8f8; color: var(--primary); }
+
 /* ---------- 문서 확대/축소 막대 ----------
    읽기·편집 어느 모드에서도 오른쪽 아래에서 한 손으로 누를 수 있게 둔다. */
 .zoom-bar {
@@ -669,6 +706,7 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
   .doc-pages { gap: 12px; }
   .doc-wrap { max-width: 100%; }
   .zoom-bar { right: 8px; }
+  .fit-btn { right: 10px; }
   .zoom-bar button { width: 34px; height: 30px; }
   .page-nav { left: 8px; }
   .page-nav button { width: 42px; height: 36px; font-size: 19px; }
@@ -687,5 +725,8 @@ body.axis-h .doc-pages > .page { scroll-snap-align: start; }
   .dir-toggle { padding: 4px 6px; font-size: 13px; }
   .actions { order: 3; }
   .actions .btn { padding: 6px 7px; font-size: 11.5px; }
+  /* 머리말 안쪽 여백(8px)에 맞춰 저장 단추와 오른쪽 끝을 맞춘다 */
+  .fit-btn { right: 8px; height: 28px; padding: 0 9px; font-size: 11px; }
+  .fit-btn svg { width: 12px; height: 12px; }
   .page-foot { display: none; }
 }

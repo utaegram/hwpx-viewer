@@ -43,6 +43,7 @@
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
     toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
     zoomBar: $id('zoomBar'), zoomIn: $id('zoomIn'), zoomOut: $id('zoomOut'), zoomReset: $id('zoomReset'),
+    fitBtn: $id('fitBtn'),
     viewToggle: $id('viewToggle'), dirToggle: $id('dirToggle'), pageNav: $id('pageNav'), pagePrev: $id('pagePrev'),
     pageNext: $id('pageNext'), pageNavCount: $id('pageNavCount'),
   };
@@ -1199,6 +1200,12 @@
     if (ui.zoomIn) ui.zoomIn.disabled = s >= ZOOM_MAX - 0.001;
     if (ui.zoomOut) ui.zoomOut.disabled = s <= ZOOM_MIN + 0.001;
     if (ui.zoomBar) ui.zoomBar.hidden = !state.zip;
+    if (ui.fitBtn) {
+      /* 찾아바꾸기 판이 열리면 그 판 오른쪽 단추들과 겹치므로 잠시 걷는다 */
+      ui.fitBtn.hidden = !state.zip || !!(ui.replacePanel && !ui.replacePanel.hidden);
+      /* 지금 배율이 100%(화면 폭에 꽉 참)가 아니면 눌러 되돌리라는 표시 */
+      ui.fitBtn.classList.toggle('off', Math.abs(s - 1) > 0.001);
+    }
   }
 
   /* anchor(손가락·화면 기준점) 아래에 있던 문서 위치가 배율을 바꿔도 제자리에 남게 한다. */
@@ -1230,6 +1237,25 @@
     if (wrap && wrap.scrollHeight > wrap.clientHeight + 1 && Math.abs(dy) > 0.5) {
       wrap.scrollTop = Math.max(0, Math.min(wrap.scrollTop + dy, wrap.scrollHeight - wrap.clientHeight));
     }
+  }
+
+  /* 화면 맞춤 — 확대·축소로 흐트러진 배율을 풀어 용지를 화면 폭에 꽉 차게(100%) 되돌리고,
+     좌우·위아래 스크롤도 제자리로 맞춘다. 1쪽 보기는 가운데, 연속 보기는 보던 쪽 위쪽. */
+  function fitToScreen() {
+    if (!state.zip) return;
+    state.userScale = 1;
+    applyUserScale();       // 배율 100% · 확대 시 왼쪽 기준 정렬 해제
+    syncScrollLock();       // 100% 에서 넘치지 않는 축은 스크롤을 잠근다
+    if (state.pageMode === 'single') {
+      resetDocScroll();     // 한 쪽은 CSS 가 세로 가운데에 세운다
+    } else {
+      const pages = pageEls();
+      const page = pages.length ? pages[clamp(state.currentPage, 1, pages.length) - 1] : null;
+      if (page) scrollPageIntoView(page, false);
+      else resetDocScroll();
+    }
+    syncScrollLock();       // 스크롤을 옮긴 뒤 잠금 상태를 다시 확인
+    updatePageInfo();
   }
 
   function stepUserScale(dir) {
@@ -2654,7 +2680,7 @@
     if (Date.now() - lastPageFlipAt < 400) return true;
     const t = e.target;
     if (!t || !t.closest) return true;
-    if (t.closest('button, a, input, select, textarea, label, [contenteditable="true"]')) return true;
+    if (t.closest('button, a, input, select, textarea, label, .fit-btn, [contenteditable="true"]')) return true;
     const sel = window.getSelection && window.getSelection();
     if (sel && String(sel).length > 0) return true;   // 글자를 골라 복사하려는 경우
     return false;
@@ -2773,6 +2799,15 @@
     if (ui.zoomOut) ui.zoomOut.addEventListener('click', () => stepUserScale(-1));
     if (ui.zoomReset) ui.zoomReset.addEventListener('click', () => setUserScale(1));
 
+    /* 화면 맞춤 단추 — 누르면 100% 로 되돌리고 스크롤도 제자리로.
+       이 누름이 문서 빈 곳 누름(몰입 전체화면 토글)으로 새지 않게 막는다. */
+    if (ui.fitBtn) {
+      ui.fitBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fitToScreen();
+      });
+    }
+
     /* 문서 위 두 손가락 집기: 브라우저 기본 확대 대신 문서 배율을 바꾼다 */
     if (ui.docWrap) {
       ui.docWrap.addEventListener('touchstart', (e) => {
@@ -2860,9 +2895,13 @@
       if (state.mode !== 'edit') return;
       const open = ui.replacePanel.hidden;
       ui.replacePanel.hidden = !open;
+      applyUserScale();     // 찾아바꾸기 판이 열리면 화면 맞춤 단추는 걷는다
       if (open) ui.findInput.focus();
     });
-    ui.replaceCloseBtn.addEventListener('click', () => { ui.replacePanel.hidden = true; });
+    ui.replaceCloseBtn.addEventListener('click', () => {
+      ui.replacePanel.hidden = true;
+      applyUserScale();
+    });
     ui.replaceAllBtn.addEventListener('click', () => {
       const find = ui.findInput.value;
       if (!find) { ui.replaceResult.textContent = '찾을 내용을 입력해 주세요'; return; }
