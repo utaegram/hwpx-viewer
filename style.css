@@ -10,7 +10,11 @@
   --mark-line: #e8b022;
   --radius: 10px;
   --header-h: 52px;
+  /* 보이는 영역의 위쪽 끝: 머리말 아래. 몰입 전체화면에서는 머리말이 걷히므로 0 이 된다. */
+  --view-top: var(--header-h);
 }
+
+body.is-fullscreen { --view-top: 0px; }
 
 * { box-sizing: border-box; }
 
@@ -113,6 +117,14 @@ body { min-height: 100vh; }
 .view-toggle:hover { border-color: #cfd5df; background: #f7f9fc; }
 .view-toggle.on { background: #eef3fe; border-color: #c9d8f8; color: var(--primary); }
 
+/* 방향(세로 ↔ 가로) 단추는 글자 대신 화살표 하나만 둔다 */
+.dir-toggle {
+  padding: 5px 7px;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+}
+
 .actions { display: flex; align-items: center; gap: 6px; flex: none; }
 
 .btn {
@@ -207,8 +219,12 @@ main { padding: 22px 16px 64px; }
   -webkit-overflow-scrolling: touch;
   /* 두 손가락 집기는 브라우저 기본 확대 대신 app.js 가 문서 배율로 받아 낸다. */
   touch-action: pan-x pan-y;
-  overscroll-behavior-x: contain;
-  overscroll-behavior-y: contain;
+  /* 이 상자에 overscroll-behavior: contain 을 걸면 안 된다.
+     overflow-x: auto 인 순간 이 상자는 세로로도 스크롤 상자가 되는데, contain 은 그 상자가
+     끝에 닿았을 때 위(창)로 스크롤을 넘기지 않는다. 그래서 문서 위에서 시작한 손가락 손짓이
+     창 스크롤에 닿지 못해, 연속 보기에서 아래로 내려가지 않는 증상이 생겼다.
+     가로·세로 모두 넘겨 주고, 당겨서 새로고침은 body 의 overscroll-behavior 로 막는다. */
+  overscroll-behavior: auto;
 }
 
 .edit-hint {
@@ -460,6 +476,32 @@ body.is-fullscreen .page-foot { opacity: .55; }
 body.is-fullscreen .fs-meter:not([hidden]) { display: block; opacity: 1; }
 body.is-fullscreen .fs-meter[hidden] { display: none; }
 
+/* ---------- 1쪽 보기: 용지를 보이는 영역 한가운데에 ----------
+   머리말 아래부터 창 끝까지를 가용 영역으로 잡고(min-height), 그 안에서 용지에
+   margin 자동을 준다. 용지가 들어가면 정확히 가운데 서고, 확대해 용지가 더 커지면
+   자동 여백이 0 이 되어 위·왼쪽이 잘리지 않고 그대로 스크롤된다(flex 가운데 정렬의
+   "넘칠 때 위가 잘리는" 문제를 피하는 검증된 방식). */
+body.view-single main { padding-top: 0; padding-bottom: 0; }
+body.is-fullscreen.view-single main { padding: 0; }
+body.view-single .doc-pages { min-height: calc(100dvh - var(--view-top)); padding-block: 10px; }
+body.view-single .doc-pages > .page:not(.is-hidden) { margin-block: auto; }
+/* 1쪽 볼 때는 아래 문구를 접어 가운데 정렬을 정확하게 */
+body.view-single .page-foot { display: none; }
+
+/* ---------- 가로(좌우) 보기 ----------
+   연속 보기: 쪽을 옆으로 나란히 두고 .doc-wrap 이 좌우 스크롤 상자가 된다.
+   1쪽 보기: 한 쪽만 남으므로 방향은 넘김 손짓과 전환 효과에만 쓰인다. */
+body.axis-h .doc-pages {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: safe center;
+  gap: 24px;
+  /* 쪽 폭이 줄어들지 않게 (가로 flex 에서는 기본값이면 좁혀진다) */
+}
+body.axis-h .doc-pages > .page { flex: 0 0 auto; }
+body.axis-h .doc-wrap { scroll-snap-type: x proximity; }
+body.axis-h .doc-pages > .page { scroll-snap-align: start; }
+
 /* ---------- 문서 확대/축소 막대 ----------
    읽기·편집 어느 모드에서도 오른쪽 아래에서 한 손으로 누를 수 있게 둔다. */
 .zoom-bar {
@@ -557,6 +599,9 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
 }
 .page-nav button:active:not(:disabled) { background: #eef3fe; }
 .page-nav button:disabled { opacity: .28; cursor: default; }
+/* 세로로 볼 때는 ‹ › 를 돌려 위아래 화살표로 */
+.page-nav.axis-v #pagePrev,
+.page-nav.axis-v #pageNext { transform: rotate(90deg); }
 .page-nav .pn-count {
   min-width: 62px;
   text-align: center;
@@ -594,6 +639,7 @@ body.is-fullscreen .fs-meter[hidden] { display: none; }
   .fname { max-width: 30vw; font-size: 12.5px; }
   .doc-meter { order: 2; font-size: 11px; }
   .view-toggle { padding: 4px 7px; font-size: 11px; }
+  .dir-toggle { padding: 4px 6px; font-size: 13px; }
   .actions { order: 3; }
   .actions .btn { padding: 6px 7px; font-size: 11.5px; }
   .page-foot { display: none; }

@@ -43,7 +43,7 @@
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
     toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
     zoomBar: $id('zoomBar'), zoomIn: $id('zoomIn'), zoomOut: $id('zoomOut'), zoomReset: $id('zoomReset'),
-    viewToggle: $id('viewToggle'), pageNav: $id('pageNav'), pagePrev: $id('pagePrev'),
+    viewToggle: $id('viewToggle'), dirToggle: $id('dirToggle'), pageNav: $id('pageNav'), pagePrev: $id('pagePrev'),
     pageNext: $id('pageNext'), pageNavCount: $id('pageNavCount'),
   };
 
@@ -67,6 +67,7 @@
     fontPass: 0,
     userScale: 1,            // 사용자가 고른 문서 배율 (fitPages 축소 위에 한 겹 더)
     pageMode: 'scroll',      // 'scroll' 연속 보기 · 'single' 1쪽 보기
+    axis: 'vertical',        // 'vertical' 세로(상하) · 'horizontal' 가로(좌우)
     currentPage: 1,          // 지금 보고 있는 쪽 (1부터)
   };
 
@@ -1259,11 +1260,18 @@
     pinchTarget = null;
   }
 
-  /* ---------------- 보기 방식: 연속 / 1쪽 ----------------
-     연속은 모든 쪽을 위아래로 이어 보여 주고(지금까지의 방식), 1쪽은 한 번에 한 쪽만 보여 준다.
-     고른 방식은 localStorage 에 남겨 다음에 열 때도 그대로 쓴다. */
+  /* ---------------- 보기 방식: 연속 / 1쪽 · 방향: 세로 / 가로 ----------------
+     연속은 모든 쪽을 이어 보여 주고(지금까지의 방식), 1쪽은 한 번에 한 쪽만 보여 준다.
+     방향은 두 보기 모두에 걸린다 — 세로면 위아래로, 가로면 좌우로 잇거나 넘긴다.
+     고른 방식과 방향은 localStorage 에 남겨 다음에 열 때도 그대로 쓴다. */
   const PAGE_MODE_KEY = 'hunmin-page-mode';
+  const AXIS_KEY = 'hunmin-view-axis';
+  /* 쪽 넘김 전환: 방향에 맞게 살짝 밀려 들어오며 번진다 */
+  const FLIP_MS = 250;
+  const FLIP_EASE = 'cubic-bezier(.22,.61,.36,1)';
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let lastPageFlipAt = 0;
+  let pageFlipAnim = null;
 
   function pageEls() {
     return Array.from(ui.doc.querySelectorAll('.page'));
@@ -1277,8 +1285,19 @@
     }
   }
 
+  function loadAxis() {
+    try {
+      return localStorage.getItem(AXIS_KEY) === 'horizontal' ? 'horizontal' : 'vertical';
+    } catch (err) {
+      return 'vertical';
+    }
+  }
+
+  const isHorizontal = () => state.axis === 'horizontal';
+
   function updateViewModeUi() {
     const single = state.pageMode === 'single';
+    const h = isHorizontal();
     if (ui.viewToggle) {
       /* 누르면 바뀔 쪽을 이름으로 보여 준다 (편집/읽기 단추와 같은 방식) */
       ui.viewToggle.textContent = single ? '연속' : '1쪽';
@@ -1286,8 +1305,34 @@
       ui.viewToggle.setAttribute('aria-pressed', String(single));
       ui.viewToggle.classList.toggle('on', single);
     }
-    if (ui.pageNav) ui.pageNav.hidden = !(state.zip && single);
+    if (ui.dirToggle) {
+      /* 이것도 누르면 바뀔 방향을 보여 준다: 지금 세로면 ↔(가로로), 가로면 ↕(세로로) */
+      ui.dirToggle.textContent = h ? '↕' : '↔';
+      const label = h ? '세로로 보기' : '가로로 보기';
+      ui.dirToggle.title = label;
+      ui.dirToggle.setAttribute('aria-label', label);
+      ui.dirToggle.setAttribute('aria-pressed', String(h));
+    }
+    if (ui.pageNav) {
+      ui.pageNav.hidden = !(state.zip && single);
+      /* 세로로 볼 때는 ‹ › 를 90도 돌려 위아래 화살표로 보이게 한다 (CSS) */
+      ui.pageNav.classList.toggle('axis-v', !h);
+    }
     document.body.classList.toggle('view-single', single);
+    document.body.classList.toggle('axis-h', h);
+  }
+
+  /* 쪽 넘김 손맛: 새 쪽이 진행 방향에서 살짝 밀려 들어오며 함께 번진다 */
+  function flipFrames(forward) {
+    const d = forward ? 1 : -1;
+    const dist = 46;
+    const from = isHorizontal()
+      ? `translate3d(${d * dist}px, 0, 0)`
+      : `translate3d(0, ${d * dist}px, 0)`;
+    return [
+      { transform: from, opacity: 0 },
+      { transform: 'none', opacity: 1 },
+    ];
   }
 
   /* 1쪽 보기: 고른 쪽만 남기고 나머지 .page 는 감춘다 */
@@ -1295,9 +1340,19 @@
     const pages = pageEls();
     if (!pages.length) return;
     const idx = clamp(Math.round(n) || 1, 1, pages.length);
+    const prev = state.currentPage;
+    const target = pages[idx - 1];
+    const animate = !!(opts && opts.animate);
     state.currentPage = idx;
     pages.forEach((p, i) => p.classList.toggle('is-hidden', i !== idx - 1));
-    if (!opts || opts.scroll !== false) window.scrollTo({ top: 0, left: 0 });
+    if (animate && target && target.animate && !reducedMotion()) {
+      if (pageFlipAnim) { try { pageFlipAnim.cancel(); } catch (err) { /* 이미 끝났으면 그만 */ } }
+      pageFlipAnim = target.animate(flipFrames(idx >= prev), { duration: FLIP_MS, easing: FLIP_EASE });
+    }
+    if (!opts || opts.scroll !== false) {
+      window.scrollTo({ top: 0, left: 0 });
+      if (ui.docWrap) ui.docWrap.scrollLeft = 0;
+    }
     updatePageInfo();
   }
 
@@ -1317,22 +1372,67 @@
   function setPageMode(mode) {
     const next = mode === 'single' ? 'single' : 'scroll';
     if (next === state.pageMode) return;
+    /* 보기 방식을 바꾸기 전에 보던 쪽을 잡아 둔다
+       (연속 보기로 돌아오면 화면 위치로 쪽을 다시 세기 때문에 그 전에 잡아야 한다) */
+    const keepPage = state.currentPage;
     state.pageMode = next;
     try { localStorage.setItem(PAGE_MODE_KEY, next); } catch (err) { /* 기억 못해도 그대로 동작 */ }
     applyViewMode();
     const pages = pageEls();
     if (!pages.length) return;
+    /* 보기 방식이 바뀌면 용지가 차지하는 폭이 달라져 배율도 다시 맞춘다 */
+    fitPages();
     if (next === 'scroll') {
-      /* 1쪽에서 보던 쪽으로 자연스럽게 이어 준다 */
-      const target = pages[clamp(state.currentPage, 1, pages.length) - 1];
-      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+      /* 1쪽에서 보던 쪽부터 이어서 보여 준다 */
+      const target = pages[clamp(keepPage, 1, pages.length) - 1];
+      scrollPageIntoView(target, false);
     } else {
       window.scrollTo({ top: 0, left: 0 });
+      if (ui.docWrap) ui.docWrap.scrollLeft = 0;
     }
     updatePageInfo();
   }
 
-  /* 쪽 넘기기 — 1쪽 보기에서는 한 쪽씩 바꾸고, 연속 보기에서는 그 쪽으로 스크롤한다 */
+  function setAxis(axis) {
+    const next = axis === 'horizontal' ? 'horizontal' : 'vertical';
+    if (next === state.axis) return;
+    state.axis = next;
+    try { localStorage.setItem(AXIS_KEY, next); } catch (err) { /* 기억 못해도 그대로 동작 */ }
+    updateViewModeUi();
+    if (!state.zip) return;
+    const pages = pageEls();
+    if (!pages.length) return;
+    /* 보던 쪽을 그대로 두고 방향만 바꾼다 */
+    const target = state.pageMode === 'single'
+      ? null
+      : pages[clamp(state.currentPage, 1, pages.length) - 1];
+    fitPages();
+    if (target) scrollPageIntoView(target, false);
+    else { window.scrollTo({ top: 0, left: 0 }); if (ui.docWrap) ui.docWrap.scrollLeft = 0; }
+    updatePageInfo();
+  }
+
+  /* 쪽 하나를 화면 맨 위(가로 보기에서는 맨 왼쪽)에 맞춘다.
+     scrollIntoView 는 .doc-wrap 같은 중간 스크롤 상자에 먼저 붙잡혀 엉뚱한 곳으로 가므로
+     창과 가로 스크롤 위치를 직접 계산해 옮긴다. */
+  function scrollPageIntoView(page, smooth) {
+    if (!page) return;
+    const behavior = smooth ? 'smooth' : 'auto';
+    const header = document.querySelector('.app-header');
+    const headerH = header ? header.getBoundingClientRect().bottom : 0;
+    const top = page.getBoundingClientRect().top + window.scrollY - (fullscreenOn() ? 8 : headerH + 8);
+    window.scrollTo({ top: Math.max(0, top), behavior });
+    if (isHorizontal() && ui.docWrap) {
+      const wrap = ui.docWrap;
+      const wr = wrap.getBoundingClientRect();
+      const pr = page.getBoundingClientRect();
+      const left = wrap.scrollLeft + (pr.left - wr.left);
+      if (wrap.scrollTo) wrap.scrollTo({ left: Math.max(0, left), behavior });
+      else wrap.scrollLeft = Math.max(0, left);
+    }
+  }
+
+  /* 쪽 넘기기 — 1쪽 보기에서는 한 쪽씩 넘기고, 연속 보기에서는 그 쪽으로 스크롤한다 */
   function gotoPage(n) {
     const pages = pageEls();
     if (!pages.length) return;
@@ -1340,12 +1440,17 @@
     if (state.pageMode === 'single') {
       if (idx === state.currentPage) return;
       lastPageFlipAt = Date.now();
-      showSinglePage(idx);
+      showSinglePage(idx, { animate: true, scroll: true });
     } else {
       const target = pages[idx - 1];
-      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+      scrollPageIntoView(target, true);
       updatePageInfo();
     }
+  }
+
+  /* 1쪽 보기에서 위아래로 넘겨도 되는지 — 세로로 스크롤할 여지가 있으면 넘기지 않고 스크롤을 준다 */
+  function verticalRoomToScroll() {
+    return document.documentElement.scrollHeight > window.innerHeight + 4;
   }
 
   /* ---------------- blocks ---------------- */
@@ -2379,12 +2484,27 @@
       /* 한 쪽씩 볼 때는 화면에 남은 한 쪽이 곧 지금 쪽이다 */
       cur = clamp(state.currentPage, 1, pages.length);
       state.currentPage = cur;
+    } else if (isHorizontal()) {
+      /* 가로로 이어 볼 때는 화면 가운데에 가장 가까운 쪽이 지금 쪽이다 */
+      const wrap = ui.docWrap;
+      const box = wrap ? wrap.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+      const mid = box.left + box.width / 2;
+      let best = Infinity;
+      pages.forEach((p, i) => {
+        const r = p.getBoundingClientRect();
+        const d = Math.abs((r.left + r.right) / 2 - mid);
+        if (d < best) { best = d; cur = i + 1; }
+      });
+      state.currentPage = cur;
     } else {
       const header = document.querySelector('.app-header');
       const line = (header ? header.getBoundingClientRect().bottom : 52) + 48;
       pages.forEach((p, i) => {
         if (p.getBoundingClientRect().top <= line) cur = i + 1;
       });
+      /* 문서 끝까지 내려왔으면 마지막 쪽이 지금 쪽이다(마지막 쪽은 위에 닿을 수 없다) */
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (maxScroll > 0 && window.scrollY >= maxScroll - 2) cur = pages.length;
       state.currentPage = cur;
     }
     const text = `${cur} / ${pages.length}쪽`;
@@ -2548,6 +2668,11 @@
     }
     if (ui.pagePrev) ui.pagePrev.addEventListener('click', () => gotoPage(state.currentPage - 1));
     if (ui.pageNext) ui.pageNext.addEventListener('click', () => gotoPage(state.currentPage + 1));
+    if (ui.dirToggle) {
+      ui.dirToggle.addEventListener('click', () => {
+        setAxis(isHorizontal() ? 'vertical' : 'horizontal');
+      });
+    }
 
     /* 확대/축소 막대 — 한 번 누를 때마다 한 단계씩 */
     if (ui.zoomIn) ui.zoomIn.addEventListener('click', () => stepUserScale(1));
@@ -2570,8 +2695,9 @@
       ui.docWrap.addEventListener('touchcancel', endPinch, { passive: true });
     }
 
-    /* 1쪽 보기: 손가락을 좌우로 밀어 쪽을 넘긴다.
-       확대해 둔 때(userScale > 1.05)는 가로 스크롤이 먼저이므로 넘기지 않는다. */
+    /* 1쪽 보기: 고른 방향의 손짓으로 쪽을 넘긴다(가로면 좌우, 세로면 상하).
+       확대해 둔 때(userScale > 1.05)는 그 축의 스크롤이 먼저이므로 넘기지 않는다.
+       세로 방향에서 페이지가 화면보다 길면 그 손짓은 스크롤로 둔다. */
     let swipe = null;
     ui.main.addEventListener('touchstart', (e) => {
       swipe = null;
@@ -2586,11 +2712,16 @@
       const t = e.touches[0];
       const dx = t.clientX - swipe.x;
       const dy = t.clientY - swipe.y;
-      /* 세로로 더 움직였으면 그냥 스크롤하는 손짓이다 */
-      if (Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
-      if (Math.abs(dx) < 56) return;
+      const h = isHorizontal();
+      const along = h ? Math.abs(dx) : Math.abs(dy);
+      const across = h ? Math.abs(dy) : Math.abs(dx);
+      /* 다른 축으로 더 움직였으면 그냥 그 방향으로 스크롤하는 손짓이다 */
+      if (across > along) { swipe = null; return; }
+      if (along < 56) return;
+      if (!h && verticalRoomToScroll()) { swipe = null; return; }
       swipe.done = true;
-      gotoPage(state.currentPage + (dx < 0 ? 1 : -1));
+      const forward = h ? dx < 0 : dy < 0;
+      gotoPage(state.currentPage + (forward ? 1 : -1));
     }, { passive: true });
     ui.main.addEventListener('touchend', () => { swipe = null; }, { passive: true });
     ui.main.addEventListener('touchcancel', () => { swipe = null; }, { passive: true });
@@ -2644,13 +2775,22 @@
         setUserScale(1);
       }
       if (e.key === 'Escape' && fullscreenOn()) setFullscreen(false);
-      /* 1쪽 보기: ←/→ 로 앞·뒤 쪽 (글을 쓰거나 고르는 중에는 방해하지 않는다) */
-      if (state.pageMode === 'single' && state.zip && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      /* 쪽 넘김 단추: 1쪽 보기에서는 ←/→, 세로 보기에서는 ↑/↓ 로도 넘긴다.
+         글을 쓰거나 고르는 중에는 방해하지 않고, 스크롤할 여지가 있으면 그 키는 그대로 둔다. */
+      if (state.zip && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const t = e.target;
         const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''));
-        if (!typing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-          e.preventDefault();
-          gotoPage(state.currentPage + (e.key === 'ArrowRight' ? 1 : -1));
+        if (!typing) {
+          const h = isHorizontal();
+          const single = state.pageMode === 'single';
+          if ((single || h) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            e.preventDefault();
+            gotoPage(state.currentPage + (e.key === 'ArrowRight' ? 1 : -1));
+          } else if (single && !h && !verticalRoomToScroll() &&
+                     (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+            e.preventDefault();
+            gotoPage(state.currentPage + (e.key === 'ArrowDown' ? 1 : -1));
+          }
         }
       }
     });
@@ -2692,6 +2832,18 @@
       });
     }, { passive: true });
 
+    /* 가로로 이어 볼 때는 .doc-wrap 이 좌우 스크롤 상자라 그 스크롤도 쪽 번호에 반영한다 */
+    if (ui.docWrap) {
+      let wrapFrame = 0;
+      ui.docWrap.addEventListener('scroll', () => {
+        if (wrapFrame) return;
+        wrapFrame = requestAnimationFrame(() => {
+          wrapFrame = 0;
+          updatePageInfo();
+        });
+      }, { passive: true });
+    }
+
     // drag & drop anywhere on the page
     let dragDepth = 0;
     window.addEventListener('dragenter', (e) => {
@@ -2716,6 +2868,7 @@
 
   bind();
   state.pageMode = loadPageMode();
+  state.axis = loadAxis();
   applyViewMode();
   /* 마지막에 보던 문서가 브라우저 안에 있으면 드롭존 대신 그 문서를 다시 연다 */
   restoreLastDoc();

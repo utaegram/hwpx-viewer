@@ -1,7 +1,7 @@
 /* HWPX 뷰어 서비스 워커 — 앱 셸 프리캐시 + 네트워크 우선(오프라인 시 캐시 폴백) */
 'use strict';
 
-const VERSION = '7';
+const VERSION = '8';
 const CACHE = `hwpx-viewer-${VERSION}`;
 const RUNTIME = `hwpx-viewer-runtime-${VERSION}`;
 
