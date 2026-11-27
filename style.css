@@ -250,7 +250,9 @@ body.has-doc main { overflow: hidden; padding: 12px 16px 0; }
   max-width: 900px;
   margin: 0 auto;
   overflow: auto;
-  padding-bottom: 28px;
+  /* 아래 여백은 .doc-pages 의 padding-block 이 맡는다. 여기에 padding 을 두면
+     min-height:100% 가 (높이 - padding) 으로 풀려 문서가 늘 그만큼 위로 치우친다. */
+  padding-bottom: 0;
   -webkit-overflow-scrolling: touch;
   /* 두 손가락 집기는 브라우저 기본 확대 대신 app.js 가 문서 배율로 받아 낸다. */
   touch-action: pan-x pan-y;
@@ -285,6 +287,19 @@ body.mode-edit .edit-hint { display: block; }
      확대해 더 커지면 이 값이 무시되어 위쪽부터 스크롤된다. */
   min-height: 100%;
 }
+
+/* ---------- 연속 보기: 문서가 화면보다 짧으면 위아래도 가운데로 ----------
+   첫 쪽의 위 여백과 마지막 쪽의 아래 여백만 auto 로 둔다. 남는 공간이 있으면 그 공간을
+   반씩 나눠 문서 전체가 정확히 가운데 서고, 문서가 화면보다 길면 auto 가 0 이 되어
+   위쪽이 잘리지 않고 첫 쪽부터 그대로 스크롤된다(flex 가운데 정렬이 넘칠 때 위를
+   잘라 먹는 문제를 피하는 방식 — 1쪽 보기에서 이미 쓰고 있는 것과 같다).
+   위아래 padding 은 문서가 길 때 위·아래에 숨 쉴 틈을 주고, 짧을 때는 대칭이라
+   가운데 정렬을 흔들지 않는다. */
+body:not(.view-single) .doc-pages {
+  padding-block: 24px;
+}
+body:not(.view-single):not(.axis-h) .doc-pages > .page:first-child { margin-block-start: auto; }
+body:not(.view-single):not(.axis-h) .doc-pages > .page:last-child { margin-block-end: auto; }
 /* 확대해서 용지가 상자보다 넓어지면 왼쪽 끝에 붙여 오른쪽으로만 넘치게 한다
    (가운데 정렬이면 왼쪽으로 넘친 부분은 스크롤로 닿을 수 없다). */
 .doc-pages.zoomed {
@@ -527,8 +542,10 @@ body.is-fullscreen.view-single main { padding: 0 6px; }
 body.view-single .doc-wrap { padding-bottom: 0; }
 body.view-single .doc-pages { min-height: 100%; }
 body.view-single .doc-pages > .page:not(.is-hidden) { margin-block: auto; }
-/* 1쪽 볼 때는 아래 문구를 접어 가운데 정렬을 정확하게 */
-body.view-single .page-foot { display: none; }
+/* 아래 문구는 문서를 연 뒤에는 어느 보기에서도 접는다. 문구가 차지하는 높이가
+   .doc-pages 밖에 남아 있으면 문서가 화면에 다 들어와도 스크롤 여지가 생겨
+   연속 보기의 위아래 가운데 정렬이 풀린다. */
+body.has-doc .page-foot { display: none; }
 
 /* ---------- 가로(좌우) 보기 ----------
    연속 보기: 쪽을 옆으로 나란히 두고 .doc-wrap 이 좌우 스크롤 상자가 된다.
@@ -541,6 +558,11 @@ body.axis-h .doc-pages {
   /* 쪽 폭이 줄어들지 않게 (가로 flex 에서는 기본값이면 좁혀진다) */
 }
 body.axis-h .doc-pages > .page { flex: 0 0 auto; }
+/* 가로 연속 보기: 쪽 높이가 화면보다 낮으면 각 쪽을 세로 가운데에 둔다.
+   화면보다 높으면 auto 가 0 이 되어 위쪽부터 스크롤된다(잘림 없음).
+   좌우는 위의 justify-content: safe center 가 맡는다 — 한 쪽뿐이거나 총 폭이
+   화면보다 좁으면 가운데, 넘치면 왼쪽 끝부터. */
+body.axis-h:not(.view-single) .doc-pages > .page { margin-block: auto; }
 body.axis-h .doc-wrap { scroll-snap-type: x proximity; }
 body.axis-h .doc-pages > .page { scroll-snap-align: start; }
 
