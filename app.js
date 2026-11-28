@@ -499,6 +499,9 @@
   const DOC_KEY = 'last';
   const MAX_SAVED_BYTES = 50 * 1024 * 1024;   // 50MB 가 넘으면 저장을 건너뛰고 앱은 그대로 쓴다
   let restoringDoc = false;
+  /* 안드로이드 앱 브리지 상태 — 앱이 페이지보다 먼저 파일을 넘길 수 있어 따로 둔다 */
+  let androidReady = false;
+  let androidOpenCount = 0;
 
   function idbOpen() {
     return new Promise((resolve, reject) => {
@@ -585,7 +588,8 @@
     restoringDoc = true;
     try {
       const rec = await loadLastDoc();
-      if (!rec || !rec.name || !rec.buffer || state.zip) return;
+      /* 그사이 안드로이드 앱이 넘긴 파일을 열었다면 그 문서가 우선이다 */
+      if (!rec || !rec.name || !rec.buffer || state.zip || androidOpenCount) return;
       const bytes = rec.buffer instanceof ArrayBuffer ? rec.buffer : new Uint8Array(rec.buffer);
       if (!bytes.byteLength) { await clearLastDoc(); return; }
       const file = new File([bytes], rec.name, { type: MIMETYPE });
@@ -2736,6 +2740,26 @@
   }
 
   function downloadBlob(blob, filename) {
+    /* 훈민정음 안드로이드 앱 안에서 열렸다면 blob: 다운로드 대신 앱에 넘겨 기기의 Downloads 폴더에 저장한다.
+       웹 브라우저에서는 예전처럼 blob: 링크로 내려받는다. */
+    const bridge = window.AndroidBridge;
+    if (bridge && typeof bridge.saveFile === 'function') {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const dataUrl = String(reader.result || '');
+          const comma = dataUrl.indexOf(',');
+          if (comma < 0) throw new Error('Base64 인코딩에 실패했습니다');
+          bridge.saveFile(filename, blob.type || MIMETYPE, dataUrl.slice(comma + 1));
+        } catch (err) {
+          console.error(err);
+          toast('안드로이드 저장소에 저장하지 못했습니다 · ' + filename, true);
+        }
+      };
+      reader.onerror = () => toast('파일을 읽지 못해 저장하지 못했습니다 · ' + filename, true);
+      reader.readAsDataURL(blob);
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -3072,10 +3096,58 @@
     });
   }
 
+  /* ---------------- 안드로이드 앱(훈민정음 APK) 브리지 ----------------
+     앱에서 .hwp/.hwpx 를 열면 파일명과 Base64 데이터를 넘겨 준다. 앱은 페이지 로드가 끝난 뒤
+     window.openAndroidFile(...) 을 부르고, 그보다 먼저 넘어온 파일은 앱이 window.__pendingAndroidFile
+     에 쌓아 두므로 여기서 꺼내 연다. */
+  function guessMimeType(name) {
+    return /\.hwp$/i.test(name) ? 'application/x-hwp' : 'application/hwp+zip';
+  }
+
+  function bytesFromBase64(base64) {
+    const clean = String(base64 || '').replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
+    const bin = atob(clean);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function openAndroidFile(fileName, base64) {
+    const name = String(fileName || '').split(/[\\/]/).pop() || 'document.hwpx';
+    if (!androidReady) {
+      window.__pendingAndroidFile = { fileName: name, base64 };
+      return false;
+    }
+    window.__pendingAndroidFile = null;
+    try {
+      const bytes = bytesFromBase64(base64);
+      if (!bytes.byteLength) {
+        toast('빈 파일이라 열 수 없습니다 · ' + name, true);
+        return false;
+      }
+      androidOpenCount += 1;
+      openFile(new File([bytes], name, { type: guessMimeType(name) }));
+      return true;
+    } catch (err) {
+      console.error(err);
+      toast('안드로이드에서 넘어온 파일을 열지 못했습니다 · ' + name, true);
+      return false;
+    }
+  }
+
+  window.openAndroidFile = openAndroidFile;
+
   bind();
   state.pageMode = loadPageMode();
   state.axis = loadAxis();
   applyViewMode();
+  /* 페이지가 뜨기 전에 앱이 넘겨 둔 파일이 있으면 그것부터 연다 */
+  androidReady = true;
+  if (window.__pendingAndroidFile) {
+    const pending = window.__pendingAndroidFile;
+    window.__pendingAndroidFile = null;
+    openAndroidFile(pending.fileName || pending.name, pending.base64);
+  }
   /* 마지막에 보던 문서가 브라우저 안에 있으면 드롭존 대신 그 문서를 다시 연다 */
   restoreLastDoc();
 

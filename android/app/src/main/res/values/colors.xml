@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#2563EB</color>
+    <color name="paper">#F3F5F9</color>
+    <!-- 적응형 아이콘 배경 — 아이콘 그림의 나무 테두리와 이어지는 색 -->
+    <color name="ic_launcher_background">#2F2013</color>
+</resources>

@@ -1,0 +1,19 @@
+/* 훈민정음 안드로이드 앱 — GitHub Actions(또는 로컬 gradle)에서 그대로 빌드되는 최소 구성 */
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "HunminJeongeum"
+include ':app'
