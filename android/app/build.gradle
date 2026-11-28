@@ -12,8 +12,8 @@ android {
         applicationId "com.utaegram.hunmin"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"   // 1.1: 파일 '연결 프로그램' 목록에 뜨도록 인텐트 필터 분리
     }
 
     buildTypes {
