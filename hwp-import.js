@@ -284,16 +284,20 @@
 
   /* ---------------- DocInfo ---------------- */
   function parseFaceName(rec) {
-    const r = new Reader(rec.payload);
-    const flags = r.byte();
-    const name = r.str();
-    let alt = '';
     try {
-      if (flags & 0x80) { r.byte(); alt = r.str(); }
-      if (flags & 0x40) r.skip(10);          // panose
-      if (flags & 0x20) r.str();             // 대체 글꼴
-    } catch (e) { /* 이름만 있으면 된다 */ }
-    return { name, alt };
+      const r = new Reader(rec.payload);
+      const flags = r.byte();
+      const name = r.str();
+      let alt = '';
+      try {
+        if (flags & 0x80) { r.byte(); alt = r.str(); }
+        if (flags & 0x40) r.skip(10);          // panose
+        if (flags & 0x20) r.str();             // 대체 글꼴
+      } catch (e) { /* 이름만 있으면 된다 */ }
+      return { name, alt };
+    } catch (e) {
+      return { name: '', alt: '' };
+    }
   }
 
   function readBorder(r) {
@@ -306,89 +310,110 @@
   }
 
   function parseBorderFill(rec) {
-    const r = new Reader(rec.payload);
-    r.u16();                                  // 속성(3D·그림자 등)
-    const left = readBorder(r);
-    const right = readBorder(r);
-    const top = readBorder(r);
-    const bottom = readBorder(r);
-    readBorder(r);                            // 대각선
-    let fill = '';
+    const none = { type: 'NONE', width: '0.12 mm', color: '#000000' };
     try {
-      const fillFlags = r.u32();
-      if (fillFlags & 1) {                    // 단색·무늬 채우기
-        const bg = r.u32();
-        const c = colorOf(bg);
-        if (c && bg !== 0xFFFFFFFF) fill = c;
-      }
-    } catch (e) { /* 채우기 정보가 없어도 테두리는 살린다 */ }
-    return { left, right, top, bottom, fill };
+      const r = new Reader(rec.payload);
+      r.u16();                                // 속성(3D·그림자 등)
+      const left = readBorder(r);
+      const right = readBorder(r);
+      const top = readBorder(r);
+      const bottom = readBorder(r);
+      readBorder(r);                          // 대각선
+      let fill = '';
+      try {
+        const fillFlags = r.u32();
+        if (fillFlags & 1) {                  // 단색·무늬 채우기
+          const bg = r.u32();
+          const c = colorOf(bg);
+          if (c && bg !== 0xFFFFFFFF) fill = c;
+        }
+      } catch (e) { /* 채우기 정보가 없어도 테두리는 살린다 */ }
+      return { left, right, top, bottom, fill };
+    } catch (e) {
+      return { left: none, right: none, top: none, bottom: none, fill: '' };
+    }
   }
 
   function parseCharShape(rec) {
-    const r = new Reader(rec.payload);
-    const fontId = [];
-    const width = [];
-    const spacing = [];
-    const relSize = [];
-    const offset = [];
-    for (let i = 0; i < 7; i++) fontId.push(r.u16());
-    for (let i = 0; i < 7; i++) width.push(r.byte());
-    for (let i = 0; i < 7; i++) spacing.push(r.i8());
-    for (let i = 0; i < 7; i++) relSize.push(r.byte());
-    for (let i = 0; i < 7; i++) offset.push(r.i8());
-    const baseSize = r.i32();                 // 글자 크기 (1/100 pt)
-    const flags = r.u32();
-    let shade = 0xffffffff;
-    let textColor = 0;
-    let underlineColor = 0;
     try {
-      r.skip(2);                              // 그림자 x·y
-      textColor = r.u32();
-      underlineColor = r.u32();
-      shade = r.u32();
-    } catch (e) { /* 색 정보가 짧은 문서도 있다 */ }
-    return {
-      baseSize: baseSize > 0 ? baseSize : 1000,
-      fontId, width, spacing, relSize, offset,
-      italic: !!(flags & 1),
-      bold: !!(flags & 2),
-      underline: (flags >>> 2) & 3,           // 0 없음, 1 밑줄, 2 취소선, 3 윗줄
-      underlineShape: (flags >>> 4) & 0x0f,
-      outline: (flags >>> 8) & 0x07,
-      shadow: (flags >>> 11) & 0x07,
-      textColor, underlineColor, shade,
-    };
+      const r = new Reader(rec.payload);
+      const fontId = [];
+      const width = [];
+      const spacing = [];
+      const relSize = [];
+      const offset = [];
+      for (let i = 0; i < 7; i++) fontId.push(r.u16());
+      for (let i = 0; i < 7; i++) width.push(r.byte());
+      for (let i = 0; i < 7; i++) spacing.push(r.i8());
+      for (let i = 0; i < 7; i++) relSize.push(r.byte());
+      for (let i = 0; i < 7; i++) offset.push(r.i8());
+      const baseSize = r.i32();                 // 글자 크기 (1/100 pt)
+      const flags = r.u32();
+      let shade = 0xffffffff;
+      let textColor = 0;
+      let underlineColor = 0;
+      try {
+        r.skip(2);                              // 그림자 x·y
+        textColor = r.u32();
+        underlineColor = r.u32();
+        shade = r.u32();
+      } catch (e) { /* 색 정보가 짧은 문서도 있다 */ }
+      return {
+        baseSize: baseSize > 0 ? baseSize : 1000,
+        fontId, width, spacing, relSize, offset,
+        italic: !!(flags & 1),
+        bold: !!(flags & 2),
+        underline: (flags >>> 2) & 3,           // 0 없음, 1 밑줄, 2 취소선, 3 윗줄
+        underlineShape: (flags >>> 4) & 0x0f,
+        outline: (flags >>> 8) & 0x07,
+        shadow: (flags >>> 11) & 0x07,
+        textColor, underlineColor, shade,
+      };
+    } catch (e) {
+      /* 모양을 읽지 못한 문서는 기본 글자 모양으로 그린다 */
+      return {
+        baseSize: 1000, fontId: [0, 0, 0, 0, 0, 0, 0],
+        width: [100, 100, 100, 100, 100, 100, 100], spacing: [0, 0, 0, 0, 0, 0, 0],
+        relSize: [100, 100, 100, 100, 100, 100, 100], offset: [0, 0, 0, 0, 0, 0, 0],
+        italic: false, bold: false, underline: 0, underlineShape: 0, outline: 0, shadow: 0,
+        textColor: 0, underlineColor: 0, shade: 0xffffffff,
+      };
+    }
   }
 
   function parseParaShape(rec) {
     const r = new Reader(rec.payload);
-    const flags = r.u32();
-    const left = r.i32();
-    const right = r.i32();
-    const indent = r.i32();
-    const prev = r.i32();
-    const next = r.i32();
-    const lineSpacing = r.i32();
-    let tabDef = 0;
-    let borderFill = 0;
     try {
-      tabDef = r.u16();
-      r.u16();                                // numbering/bullet id
-      borderFill = r.u16();
-    } catch (e) { /* 없으면 기본값 */ }
-    return {
-      align: (flags >>> 2) & 0x07,
-      lineType: flags & 0x03,                 // 0 비율, 1 고정, 2 여백만, 3 최소
-      left: Math.round(left / 2),             // 저장값은 HWPUNIT 의 2배
-      right: Math.round(right / 2),
-      indent,
-      prev: Math.round(prev / 2),
-      next: Math.round(next / 2),
-      lineSpacing,
-      tabDef,
-      borderFill,
-    };
+      const flags = r.u32();
+      const left = r.i32();
+      const right = r.i32();
+      const indent = r.i32();
+      const prev = r.i32();
+      const next = r.i32();
+      const lineSpacing = r.i32();
+      let tabDef = 0;
+      let borderFill = 0;
+      try {
+        tabDef = r.u16();
+        r.u16();                                // numbering/bullet id
+        borderFill = r.u16();
+      } catch (e) { /* 없으면 기본값 */ }
+      return {
+        align: (flags >>> 2) & 0x07,
+        lineType: flags & 0x03,                 // 0 비율, 1 고정, 2 여백만, 3 최소
+        left: Math.round(left / 2),             // 저장값은 HWPUNIT 의 2배
+        right: Math.round(right / 2),
+        indent,
+        prev: Math.round(prev / 2),
+        next: Math.round(next / 2),
+        lineSpacing,
+        tabDef,
+        borderFill,
+      };
+    } catch (e) {
+      return { align: 0, lineType: 0, left: 0, right: 0, indent: 0, prev: 0, next: 0,
+        lineSpacing: 160, tabDef: 0, borderFill: 0 };
+    }
   }
 
   async function parseDocInfo(root, compressed) {
