@@ -515,26 +515,6 @@ body.is-fullscreen main {
 body.is-fullscreen .doc-wrap { max-width: 100%; }
 body.is-fullscreen .page-foot { opacity: .55; }
 
-/* 오른쪽 아래에 은은하게 남기는 쪽 표시 (확대/축소 막대 위에 놓는다) */
-.fs-meter {
-  position: fixed;
-  right: 14px;
-  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
-  z-index: 25;
-  padding: 5px 11px;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(31, 39, 51, .55);
-  border-radius: 999px;
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .2s ease;
-}
-body.is-fullscreen .fs-meter:not([hidden]) { display: block; opacity: 1; }
-body.is-fullscreen .fs-meter[hidden] { display: none; }
-
 /* ---------- 1쪽 보기: 용지를 보이는 영역 한가운데에 ----------
    머리말 아래부터 창 끝까지를 가용 영역으로 잡고(min-height), 그 안에서 용지에
    margin 자동을 준다. 용지가 들어가면 정확히 가운데 서고, 확대해 용지가 더 커지면
@@ -720,8 +700,9 @@ body.is-fullscreen .edit-dock { display: none; }
   letter-spacing: .01em;
 }
 
-/* ---------- 쪽 넘김 막대 (1쪽 보기) ----------
-   한 쪽씩 볼 때는 왼쪽 아래에서 앞·뒤 쪽을 넘긴다. */
+/* ---------- 쪽 넘김 막대 +
+   쪽수(1 / 9쪽) — 1쪽 보기·연속 보기 모두 늘 아래 왼쪽에 둔다.
+   쪽수를 누르면 쪽 번호 입력판(page-jump)이 그 위에 열린다. */
 .page-nav {
   position: fixed;
   left: 12px;
@@ -768,14 +749,177 @@ body.is-fullscreen .edit-dock { display: none; }
 /* 세로로 볼 때는 위/아래 화살표 글자를 그대로 쓴다(회전은 보이는 화살표가 단추 밖으로
    뻗어 눌리는 자리와 어긋났다). 손가락으로 정확히 누를 수 있게 판을 키운다. */
 .page-nav button { width: 44px; height: 38px; font-size: 20px; }
+/* 쪽수 — 누르면 쪽 번호 입력판이 열리는 단추 (글자 폭만큼만 차지한다) */
 .page-nav .pn-count {
-  min-width: 62px;
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0 8px;
+  width: auto;
+  min-width: 64px;
+  height: 38px;
+  background: transparent;
+  color: var(--ink-soft);
   text-align: center;
   font-size: 11.5px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .12s, color .12s;
+}
+/* 누를 수 있는 자리라는 것을 작은 화살표로 알린다 (입력판이 위로 열린다) */
+.page-nav .pn-count::after {
+  content: "\2304";
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10px;
+  line-height: 1;
+  opacity: .75;
+  transform: translateY(-1px);
+}
+.page-nav .pn-count[aria-expanded="true"] {
+  background: #eef3fe;
+  color: var(--primary);
+}
+
+/* ---------- 쪽 번호 입력판 ----------
+   하단 쪽수를 누르면 그 위에 작게 열린다. 숫자 키패드가 바로 뜨도록 type=number ·
+   inputmode=numeric 을 썼다. 가로 보기에서는 하단 가로 스크롤바를 피해 더 위에 선다. */
+.page-jump {
+  position: fixed;
+  left: 12px;
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  z-index: 29;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, .97);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(24, 34, 50, .18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 12px;
   color: var(--ink-soft);
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.axis-h .page-jump { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+.page-jump label { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.page-jump input {
+  width: 60px;
+  height: 30px;
+  padding: 0 6px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   font-variant-numeric: tabular-nums;
 }
+/* 숫자 칸의 위아래 조절 단추는 좁은 화면에서 손가락으로 누르기 어려워 걷는다 */
+.page-jump input::-webkit-outer-spin-button,
+.page-jump input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.page-jump input:focus { outline: 2px solid rgba(47, 107, 222, .3); border-color: var(--primary); }
+.page-jump .pj-total {
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.page-jump .pj-go {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .12s;
+}
+.page-jump .pj-go:active { background: var(--primary-dark); }
+
+/* ---------- 쪽 스크롤바(시크바) ----------
+   세로 보기: 오른쪽 가장자리, 오른쪽 위 [맞춤] 단추 아래 ~ 오른쪽 아래 확대 막대 위.
+   가로 보기: 하단 가로 띠, 쪽수·확대 막대 위.
+   손가락으로 잡기 좋게 보이지 않는 판은 넓게(26px), 보이는 선은 6px 로 둔다. */
+.page-scrub {
+  position: fixed;
+  z-index: 26;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+body:not(.axis-h) .page-scrub {
+  right: 0;
+  top: calc(var(--view-top) + 46px);
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  width: 26px;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+body.axis-h .page-scrub {
+  left: 8px;
+  right: 8px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  height: 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.ps-track {
+  position: relative;
+  background: rgba(31, 39, 51, .14);
+  border-radius: 999px;
+  flex: none;
+}
+body:not(.axis-h) .ps-track { width: 6px; height: 100%; margin-right: 5px; }
+body.axis-h .ps-track { height: 6px; width: 100%; }
+.ps-thumb {
+  position: absolute;
+  background: rgba(47, 107, 222, .72);
+  border-radius: 999px;
+  will-change: transform;
+  transition: background .15s;
+}
+body:not(.axis-h) .ps-thumb { left: 0; width: 6px; top: 0; }
+body.axis-h .ps-thumb { top: 0; height: 6px; left: 0; }
+.page-scrub.dragging .ps-thumb,
+.page-scrub:hover .ps-thumb { background: var(--primary); }
+/* 손잡이를 잡는 동안 쪽 번호를 실시간으로 보여 주는 말풍선 */
+.ps-bubble {
+  position: fixed;
+  z-index: 30;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(31, 39, 51, .82);
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+body:not(.axis-h) .ps-bubble { right: 30px; transform: translateY(-50%); }
+body.axis-h .ps-bubble { transform: translateX(-50%); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 720px) {
@@ -797,7 +941,9 @@ body.is-fullscreen .edit-dock { display: none; }
   .zoom-bar button { width: 34px; height: 30px; }
   .page-nav { left: 8px; }
   .page-nav button { width: 42px; height: 36px; font-size: 19px; }
-  .page-nav .pn-count { min-width: 56px; font-size: 11px; }
+  .page-nav .pn-count { width: auto; min-width: 60px; height: 36px; font-size: 11px; }
+  .page-jump { left: 8px; }
+  .page-jump input { width: 56px; height: 30px; }
   .replace-panel { padding: 8px 10px; gap: 8px; }
   .rp-field { min-width: 110px; flex: 1 1 120px; }
   .doc-meter { font-size: 11.5px; }

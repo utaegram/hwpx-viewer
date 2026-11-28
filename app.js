@@ -42,11 +42,13 @@
     dzOpenBtn: $id('dzOpenBtn'), replacePanel: $id('replacePanel'), findInput: $id('findInput'),
     replaceInput: $id('replaceInput'), replaceAllBtn: $id('replaceAllBtn'),
     replaceCloseBtn: $id('replaceCloseBtn'), replaceResult: $id('replaceResult'),
-    toast: $id('toast'), dropOverlay: $id('dropOverlay'), fsMeter: $id('fsMeter'),
+    toast: $id('toast'), dropOverlay: $id('dropOverlay'),
     zoomBar: $id('zoomBar'), zoomIn: $id('zoomIn'), zoomOut: $id('zoomOut'), zoomReset: $id('zoomReset'),
     fitBtn: $id('fitBtn'),
     viewToggle: $id('viewToggle'), dirToggle: $id('dirToggle'), pageNav: $id('pageNav'), pagePrev: $id('pagePrev'),
     pageNext: $id('pageNext'), pageNavCount: $id('pageNavCount'),
+    pageJump: $id('pageJump'), pageJumpInput: $id('pageJumpInput'), pageJumpTotal: $id('pageJumpTotal'),
+    pageScrub: $id('pageScrub'), psTrack: $id('psTrack'), psThumb: $id('psThumb'), psBubble: $id('psBubble'),
   };
 
   const emptyStyles = () => ({
@@ -695,6 +697,7 @@
       ui.docWrap.hidden = false;
       document.body.classList.add('has-doc');
       ui.replacePanel.hidden = true;
+      closePageJump();
       ui.replaceResult.textContent = '';
       await ensureFonts();
       state.fontPass = 0;
@@ -1251,6 +1254,7 @@
     state.userScale = target;
     applyUserScale();
     syncScrollLock();
+    updateScrub();
 
     const after = ref.getBoundingClientRect();
     const dx = (after.left + after.width * fx) - viewX;
@@ -1397,7 +1401,8 @@
       ui.dirToggle.classList.toggle('on', h);
     }
     if (ui.pageNav) {
-      ui.pageNav.hidden = !(state.zip && single);
+      /* 연속 보기에서도 늘 아래에 쪽수를 남긴다 — 보고 있는 쪽을 알고, 번호로 바로 갈 수 있게 */
+      ui.pageNav.hidden = !state.zip;
       /* 세로로 볼 때는 '이전/다음'이 위/아래라는 것을 화살표 글자로 바꿔 알린다.
          예전에는 ‹ › 를 90도 돌렸는데, 보이는 화살표는 단추 밖까지 뻗는데 눌리는
          자리는 그대로여서 화살표 끝을 누르면 빗나갔다. */
@@ -1406,6 +1411,8 @@
     }
     document.body.classList.toggle('view-single', single);
     document.body.classList.toggle('axis-h', h);
+    /* 보기 방식·방향이 바뀌면 스크롤바의 방향과 길이도 달라진다 */
+    updateScrub();
   }
 
   /* 쪽 넘김 손맛: 새 쪽이 진행 방향에서 살짝 밀려 들어오며 함께 번진다 */
@@ -2623,10 +2630,16 @@
     }
   }
 
-  /* 지금 보고 있는 쪽 표시 (1 / 5쪽) */
+  /* 지금 보고 있는 쪽 표시 (1 / 5쪽) — 머리말·하단 쪽수·스크롤바가 함께 따라온다 */
   function updatePageInfo() {
     const pages = pageEls();
-    if (!pages.length) { ui.docMeter.hidden = true; if (ui.fsMeter) ui.fsMeter.hidden = true; return; }
+    if (!pages.length) {
+      ui.docMeter.hidden = true;
+      if (ui.pageNav) ui.pageNav.hidden = true;
+      closePageJump();
+      updateScrub();
+      return;
+    }
     ui.docMeter.hidden = false;
     let cur = 1;
     if (state.pageMode === 'single') {
@@ -2658,13 +2671,212 @@
     }
     const text = `${cur} / ${pages.length}쪽`;
     ui.pageInfo.textContent = text;
-    if (ui.fsMeter) {
-      ui.fsMeter.textContent = text;
-      ui.fsMeter.hidden = false;
-    }
     if (ui.pageNavCount) ui.pageNavCount.textContent = text;
     if (ui.pagePrev) ui.pagePrev.disabled = cur <= 1;
     if (ui.pageNext) ui.pageNext.disabled = cur >= pages.length;
+    updateScrub();
+  }
+
+  /* ---------------- 쪽 스크롤바(시크바) · 쪽 번호로 이동 ----------------
+     쪽수를 눌러 번호를 적어 넣든지, 가장자리 스크롤바를 끌든지 해서 원하는 쪽으로 바로 간다.
+     세로 보기는 오른쪽 가장자리에 세로 레일, 가로 보기는 하단에 가로 레일을 세운다.
+     연속 보기는 스크롤 위치를 그대로 손잡이에 옮기고, 1쪽 보기는 쪽 간격을 옮긴다. */
+
+  const pageTotal = () => ui.doc.querySelectorAll('.page').length;
+
+  /* 손잡이의 길이와 지금 자리(0~1). 잴 수 없으면 null.
+     자리(ratio)는 쪽 간격으로 잡는다 — 손잡이를 중간에 두면 정확히 중간 쪽이 되고,
+     끝까지 끌면 마지막 쪽이 된다. */
+  function scrubMetrics() {
+    const total = pageTotal();
+    if (!ui.pageScrub || !ui.psTrack || total < 2) return null;
+    const vertical = !isHorizontal();
+    const trackLen = vertical ? ui.psTrack.clientHeight : ui.psTrack.clientWidth;
+    if (!(trackLen > 0)) return null;
+    /* 손잡이 길이는 화면에 보이는 몫만큼 — 연속 보기는 실제 스크롤 길이로,
+       1쪽 보기는 한 쪽 몫(1 / 전체)으로 잡는다. */
+    let shown = 1 / total;
+    const wrap = ui.docWrap;
+    if (state.pageMode !== 'single' && wrap) {
+      const all = vertical ? wrap.scrollHeight : wrap.scrollWidth;
+      const see = vertical ? wrap.clientHeight : wrap.clientWidth;
+      if (all - see > 2 && all > 0) shown = clamp(see / all, 0.04, 1);
+    }
+    const thumbLen = Math.round(clamp(trackLen * shown, 30, trackLen));
+    const travel = Math.max(0, trackLen - thumbLen);
+    const cur = clamp(state.currentPage, 1, total);
+    const ratio = (cur - 1) / Math.max(1, total - 1);
+    return { vertical, trackLen, thumbLen, travel, ratio, total };
+  }
+
+  /* 손잡이의 자리와 길이를 지금 쪽에 맞춘다(보기 방식·방향·배율이 바뀔 때마다) */
+  const scrubLast = { dir: '', len: -1, pos: -1 };
+  function updateScrub() {
+    const total = pageTotal();
+    const show = !!state.zip && total > 1;
+    if (ui.pageScrub) ui.pageScrub.hidden = !show;
+    if (!show) {
+      if (ui.psBubble) ui.psBubble.hidden = true;
+      return;
+    }
+    const m = scrubMetrics();
+    if (!m) return;
+    /* 끌고 있는 동안은 손가락이 가리키는 자리에 그대로 둔다 */
+    const ratio = scrubDrag ? scrubDrag.ratio : m.ratio;
+    const pos = Math.round(m.travel * ratio);
+    if (ui.psThumb) {
+      /* 손잡이 길이는 화면에 보이는 몫 — 확대하면 짧아지고 축소하면 길어진다.
+         방향이 바뀌면 다른 축에 남은 예전 길이를 지운다(CSS 의 6px 로 돌아간다).
+         스크롤할 때마다 같은 값을 다시 쓰지 않도록 바뀐 것만 손댄다. */
+      const dir = m.vertical ? 'v' : 'h';
+      if (scrubLast.dir !== dir) {
+        ui.psThumb.style.height = '';
+        ui.psThumb.style.width = '';
+        scrubLast.dir = dir;
+        scrubLast.len = -1;
+        scrubLast.pos = -1;
+      }
+      if (scrubLast.len !== m.thumbLen) {
+        if (m.vertical) ui.psThumb.style.height = m.thumbLen + 'px';
+        else ui.psThumb.style.width = m.thumbLen + 'px';
+        scrubLast.len = m.thumbLen;
+      }
+      if (scrubLast.pos !== pos) {
+        ui.psThumb.style.transform = m.vertical ? `translateY(${pos}px)` : `translateX(${pos}px)`;
+        scrubLast.pos = pos;
+      }
+    }
+    if (ui.pageScrub) {
+      ui.pageScrub.classList.toggle('dragging', !!scrubDrag);
+      ui.pageScrub.setAttribute('aria-valuemax', String(total));
+      ui.pageScrub.setAttribute('aria-valuenow', String(clamp(state.currentPage, 1, total)));
+      ui.pageScrub.setAttribute('aria-valuetext', `${clamp(state.currentPage, 1, total)} / ${total}쪽`);
+    }
+    if (ui.psBubble && !ui.psBubble.hidden) positionScrubBubble(ratio, m);
+  }
+
+  function positionScrubBubble(ratio, m) {
+    if (!ui.psBubble || !ui.psTrack) return;
+    const cur = clamp(1 + Math.round(ratio * (m.total - 1)), 1, m.total);
+    ui.psBubble.textContent = `${cur} / ${m.total}쪽`;
+    const pos = Math.round(m.travel * ratio);
+    const r = ui.psTrack.getBoundingClientRect();
+    if (m.vertical) {
+      ui.psBubble.style.top = Math.round(r.top + pos + m.thumbLen / 2) + 'px';
+    } else {
+      ui.psBubble.style.left = Math.round(r.left + pos + m.thumbLen / 2) + 'px';
+      ui.psBubble.style.top = Math.round(r.top - 28) + 'px';
+    }
+  }
+
+  /* 끌고 있는 동안 쪽 번호를 손끝에 띄운다(놓은 뒤에도 잠시 남긴다) */
+  let scrubBubbleTimer = null;
+  function showScrubBubble(hold) {
+    if (!ui.psBubble) return;
+    const m = scrubMetrics();
+    if (!m) return;
+    ui.psBubble.hidden = false;
+    positionScrubBubble(scrubDrag ? scrubDrag.ratio : m.ratio, m);
+    clearTimeout(scrubBubbleTimer);
+    if (!hold) scrubBubbleTimer = setTimeout(() => { ui.psBubble.hidden = true; }, 900);
+  }
+
+  let scrubDrag = null;
+
+  /* 포인터 자리가 레일 위 어느 비율인지 — 손잡이를 잡았으면 그 집은 자리를 지킨다 */
+  function scrubRatioAt(clientX, clientY) {
+    const m = scrubMetrics();
+    if (!m || !ui.psTrack) return null;
+    const r = ui.psTrack.getBoundingClientRect();
+    const point = m.vertical ? (clientY - r.top) : (clientX - r.left);
+    const grab = scrubDrag && Number.isFinite(scrubDrag.grab) ? scrubDrag.grab : m.thumbLen / 2;
+    if (m.travel <= 0) return 0;
+    return clamp((point - grab) / m.travel, 0, 1);
+  }
+
+  /* 애니메이션 없이 그 쪽으로 — 1쪽 보기는 쪽을 갈아 끼우고, 연속 보기는 그 쪽으로 스크롤 */
+  function jumpToPage(n) {
+    const pages = pageEls();
+    if (!pages.length) return;
+    const idx = clamp(Math.round(n) || 1, 1, pages.length);
+    if (state.pageMode === 'single') {
+      showSinglePage(idx, { scroll: true });
+    } else {
+      scrollPageIntoView(pages[idx - 1], false);
+      updatePageInfo();
+    }
+  }
+
+  function applyScrubRatio(ratio) {
+    const total = pageTotal();
+    if (total < 2) return;
+    if (scrubDrag) scrubDrag.ratio = ratio;
+    const target = clamp(1 + Math.round(ratio * (total - 1)), 1, total);
+    /* 쪽이 바뀌는 순간에만 문서를 옮긴다 — 매 손가락 움직임마다 스크롤하지 않게 */
+    if (target !== clamp(state.currentPage, 1, total)) jumpToPage(target);
+    updateScrub();
+    showScrubBubble(true);
+  }
+
+  function endScrub(e) {
+    if (!scrubDrag) return;
+    const id = scrubDrag.id;
+    scrubDrag = null;
+    if (ui.pageScrub && ui.pageScrub.releasePointerCapture && e && e.pointerId === id) {
+      try { ui.pageScrub.releasePointerCapture(id); } catch (err) { /* 이미 풀렸으면 그만 */ }
+    }
+    updateScrub();
+    showScrubBubble(false);
+  }
+
+  /* 쪽 번호 입력판 — 쪽수를 누르면 그 위에 열린다 */
+  function openPageJump() {
+    const total = pageTotal();
+    if (!total || !ui.pageJump || !ui.pageJumpInput) return;
+    ui.pageJumpInput.max = String(total);
+    ui.pageJumpInput.value = String(clamp(state.currentPage, 1, total));
+    if (ui.pageJumpTotal) ui.pageJumpTotal.textContent = `/ ${total}쪽`;
+    ui.pageJump.hidden = false;
+    if (ui.pageNavCount) ui.pageNavCount.setAttribute('aria-expanded', 'true');
+    /* 모바일에서 숫자 키패드가 바로 뜨고, 지금 쪽 번호를 덮어쓰면 된다 */
+    ui.pageJumpInput.focus();
+    try { ui.pageJumpInput.select(); } catch (err) { /* 선택하지 못해도 입력은 된다 */ }
+    placePageJump();
+  }
+
+  function closePageJump() {
+    if (!ui.pageJump || ui.pageJump.hidden) return;
+    ui.pageJump.hidden = true;
+    if (ui.pageNavCount) ui.pageNavCount.setAttribute('aria-expanded', 'false');
+    ui.pageJump.style.bottom = '';
+  }
+
+  /* 키보드가 올라오면(안드로이드 크롬은 화면을 줄이지 않고 키보드만 덮는 경우가 있다)
+     입력판이 가려지지 않게 키보드 높이만큼 쪽 넘김 막대 위로 올린다. */
+  function placePageJump() {
+    if (!ui.pageJump || ui.pageJump.hidden) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    ui.pageJump.style.bottom = covered > 40 ? Math.round(covered + 12) + 'px' : '';
+  }
+
+  function submitPageJump(e) {
+    if (e) e.preventDefault();
+    const total = pageTotal();
+    if (!total) return;
+    const raw = String(ui.pageJumpInput.value || '').trim();
+    const n = Math.round(Number(raw));
+    if (!raw || !Number.isFinite(n)) {
+      toast(`1 ~ ${total} 사이의 쪽 번호를 입력해 주세요`, true);
+      ui.pageJumpInput.focus();
+      return;
+    }
+    const target = clamp(n, 1, total);
+    closePageJump();
+    jumpToPage(target);
+    /* 범위를 벗어난 숫자는 가까운 끝 쪽으로 보정해 가고 그렇다고 알린다 */
+    if (target !== n) toast(`${total}쪽까지 있습니다 · ${target}쪽으로 이동했습니다`);
   }
 
   /* ---------------- 몰입 전체화면 ----------------
@@ -2844,6 +3056,79 @@
     }
     if (ui.pagePrev) ui.pagePrev.addEventListener('click', () => gotoPage(state.currentPage - 1));
     if (ui.pageNext) ui.pageNext.addEventListener('click', () => gotoPage(state.currentPage + 1));
+
+    /* 하단 쪽수를 누르면 쪽 번호 입력판이 열리고(한 번 더 누르면 닫힌다) */
+    if (ui.pageNavCount) {
+      ui.pageNavCount.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!ui.pageJump) return;
+        if (ui.pageJump.hidden) openPageJump();
+        else closePageJump();
+      });
+    }
+    if (ui.pageJump) {
+      ui.pageJump.addEventListener('submit', submitPageJump);
+      /* 입력하는 손짓이 본문 전체화면 토글로 새지 않게 (입력판은 본문 밖에 있다) */
+      ui.pageJump.addEventListener('pointerdown', (e) => e.stopPropagation());
+    }
+    /* 키보드가 올라오고 내려올 때 입력판 자리를 다시 잡는다 */
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', placePageJump, { passive: true });
+      window.visualViewport.addEventListener('scroll', placePageJump, { passive: true });
+    }
+    document.addEventListener('pointerdown', (e) => {
+      if (!ui.pageJump || ui.pageJump.hidden) return;
+      const t = e.target;
+      if (t && (ui.pageJump.contains(t) || (ui.pageNavCount && ui.pageNavCount.contains(t)))) return;
+      closePageJump();
+    }, { passive: true });
+
+    /* 쪽 스크롤바: 손잡이를 끌거나 레일을 눌러 쪽을 넘긴다 */
+    if (ui.pageScrub) {
+      ui.pageScrub.addEventListener('pointerdown', (e) => {
+        if (!state.zip || pageTotal() < 2) return;
+        e.preventDefault();
+        const m = scrubMetrics();
+        if (!m) return;
+        const r = ui.psTrack.getBoundingClientRect();
+        const point = m.vertical ? (e.clientY - r.top) : (e.clientX - r.left);
+        const thumbStart = m.travel * m.ratio;
+        /* 손잡이를 잡았으면 집은 자리를 그대로 지키고, 
+           레일을 눌렀으면 손잡이 가운데가 그 점으로 오게 한다 */
+        const onThumb = point >= thumbStart - 8 && point <= thumbStart + m.thumbLen + 8;
+        scrubDrag = { id: e.pointerId, grab: onThumb ? point - thumbStart : m.thumbLen / 2 };
+        try { ui.pageScrub.setPointerCapture(e.pointerId); } catch (err) { /* 잡지 못해도 끌린다 */ }
+        updateScrub();
+        const ratio = scrubRatioAt(e.clientX, e.clientY);
+        if (ratio != null) applyScrubRatio(ratio);
+      });
+      ui.pageScrub.addEventListener('pointermove', (e) => {
+        if (!scrubDrag || e.pointerId !== scrubDrag.id) return;
+        e.preventDefault();
+        const ratio = scrubRatioAt(e.clientX, e.clientY);
+        if (ratio != null) applyScrubRatio(ratio);
+      });
+      ui.pageScrub.addEventListener('pointerup', endScrub);
+      ui.pageScrub.addEventListener('pointercancel', endScrub);
+      /* 포인터를 잃어도(캡처 실패·화면 전환) 끌던 상태로 남지 않게 */
+      window.addEventListener('pointerup', endScrub, { passive: true });
+      window.addEventListener('pointercancel', endScrub, { passive: true });
+      /* 방향키로도 한 쪽씩 (초점이 있을 때) */
+      ui.pageScrub.addEventListener('keydown', (e) => {
+        const total = pageTotal();
+        if (!state.zip || total < 2) return;
+        const vertical = !isHorizontal();
+        let step = 0;
+        if (vertical && e.key === 'ArrowDown') step = 1;
+        else if (vertical && e.key === 'ArrowUp') step = -1;
+        else if (!vertical && e.key === 'ArrowRight') step = 1;
+        else if (!vertical && e.key === 'ArrowLeft') step = -1;
+        if (!step) return;
+        e.preventDefault();
+        jumpToPage(clamp(state.currentPage + step, 1, total));
+      });
+    }
+
     if (ui.dirToggle) {
       ui.dirToggle.addEventListener('click', () => {
         setAxis(isHorizontal() ? 'vertical' : 'horizontal');
@@ -2999,6 +3284,7 @@
         e.preventDefault();
         setUserScale(1);
       }
+      if (e.key === 'Escape' && ui.pageJump && !ui.pageJump.hidden) { closePageJump(); return; }
       if (e.key === 'Escape' && fullscreenOn()) setFullscreen(false);
       /* 쪽 넘김 단추: 1쪽 보기에서는 ←/→, 세로 보기에서는 ↑/↓ 로도 넘긴다.
          글을 쓰거나 고르는 중에는 방해하지 않고, 스크롤할 여지가 있으면 그 키는 그대로 둔다. */
