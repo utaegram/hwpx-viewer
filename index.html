@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
 <title>훈민정음</title>
-<meta name="description" content="브라우저에서 바로 열고 고치는 HWPX 뷰어·에디터. 파일은 서버로 전송되지 않습니다.">
+<meta name="description" content="브라우저에서 바로 열고 고치는 한글 문서(HWPX·HWP) 뷰어·에디터. 파일은 서버로 전송되지 않습니다.">
 <meta name="theme-color" content="#2563eb">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,8 +33,6 @@
     <span class="dirty-dot" id="dirtyDot" hidden title="수정한 곳이 있습니다"></span>
   </div>
   <div class="actions">
-    <button type="button" class="btn ghost sm" id="modeToggle" data-mode="edit" disabled>편집</button>
-    <button type="button" class="btn ghost sm" id="replaceBtn" disabled hidden>찾아바꾸기</button>
     <button type="button" class="btn ghost sm" id="openBtn">열기</button>
     <button type="button" class="btn primary sm" id="saveBtn" disabled>저장</button>
   </div>
@@ -51,12 +49,12 @@
 <main id="main">
   <section class="dropzone" id="dropzone">
     <div class="dz-inner">
-      <div class="dz-icon" aria-hidden="true">.hwpx</div>
-      <h1>훈민정음 · HWPX 열기</h1>
-      <p>.hwpx 파일을 이 화면으로 끌어다 놓거나, 파일 선택 버튼을 눌러 주세요.<br>
-         문서는 브라우저 안에서만 열리고 어디에도 전송되지 않습니다.</p>
+      <div class="dz-icon" aria-hidden="true">.hwp · .hwpx</div>
+      <h1>훈민정음 · 한글 문서 열기</h1>
+      <p>.hwpx(한글 2014 이후)나 .hwp(한글 5.0) 파일을 이 화면으로 끌어다 놓거나,<br>
+         파일 선택 버튼을 눌러 주세요. 문서는 브라우저 안에서만 열리고 어디에도 전송되지 않습니다.</p>
       <button type="button" class="btn primary lg" id="dzOpenBtn">파일 선택</button>
-      <p class="dz-note">한글(HWP) 문서의 XML 패키지 형식 · 읽기/편집/저장 지원</p>
+      <p class="dz-note">.hwpx · .hwp 읽기/편집/저장 지원 · 구형 .hwp 는 .hwpx 로 저장됩니다</p>
       <p class="dz-note"><a href="sample.hwpx" download>예제 .hwpx 파일 내려받기</a></p>
     </div>
   </section>
@@ -67,6 +65,17 @@
     <p class="page-foot">훈민정음 · 브라우저에서 로컬로 처리됨</p>
   </section>
 </main>
+
+<!-- 왼쪽 위(맞춤 단추와 좌우 대칭)에 띄우는 편집 단추.
+     [열기]·[저장]과 떨어져 있어 실수로 눌리지 않는다. -->
+<div class="edit-dock" id="editDock" hidden>
+  <button type="button" class="pill-btn edit-btn" id="modeToggle" data-mode="edit" disabled
+          aria-pressed="false" aria-label="편집" title="본문·표를 고치는 편집 모드로">
+    <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2 13.8 4.7 6 12.5l-3.4.8.8-3.4z"/><path d="M9.9 3.6 12.4 6.1"/></svg>
+    <span id="modeLabel">편집</span>
+  </button>
+  <button type="button" class="pill-btn sub" id="replaceBtn" disabled hidden>찾아바꾸기</button>
+</div>
 
 <button type="button" class="fit-btn" id="fitBtn" hidden aria-label="화면 폭에 꽉 차게 맞추기" title="화면 폭에 꽉 차게 맞추기">
   <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V2h4M14 10v4h-4M2 10v4h4M14 6V2h-4"/></svg>
@@ -84,10 +93,12 @@
   <button type="button" id="zoomIn" aria-label="확대" title="확대">+</button>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
-<div class="drop-overlay" id="dropOverlay" hidden><span>여기에 .hwpx 파일 떨어뜨리기</span></div>
-<input type="file" id="fileInput" accept=".hwpx,application/hwpx+zip,application/hwp+zip,application/zip,application/octet-stream,application/pdf,.hwp" hidden>
+<div class="drop-overlay" id="dropOverlay" hidden><span>여기에 .hwp · .hwpx 파일 떨어뜨리기</span></div>
+<input type="file" id="fileInput" accept=".hwpx,.hwp,application/hwpx+zip,application/hwp+zip,application/x-hwp,application/zip,application/octet-stream" hidden>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="lib/pako.min.js"></script>
+<script src="hwp-import.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -36,6 +36,7 @@
     fileInput: $id('fileInput'), fileName: $id('fileName'), fileStatus: $id('fileStatus'),
     docMeter: $id('docMeter'), pageInfo: $id('pageInfo'), dirtyDot: $id('dirtyDot'),
     modeToggle: $id('modeToggle'), replaceBtn: $id('replaceBtn'), saveBtn: $id('saveBtn'),
+    editDock: $id('editDock'), modeLabel: $id('modeLabel'),
     openBtn: $id('openBtn'), dropzone: $id('dropzone'), docWrap: $id('docWrap'), doc: $id('doc'),
     main: $id('main'),
     dzOpenBtn: $id('dzOpenBtn'), replacePanel: $id('replacePanel'), findInput: $id('findInput'),
@@ -57,6 +58,7 @@
   const state = {
     zip: null,
     fileName: '',
+    isHwp: false,            // 구형 바이너리 .hwp 로 연 문서인가 (저장은 .hwpx 로)
     sections: [],            // { path, doc, dirty, geom, notes }
     nodeMap: new WeakMap(),  // rendered .hp-p element -> { el, pEl, sec, originalText }
     dirtyNodes: new Set(),   // XML <p> elements changed by the user
@@ -608,10 +610,11 @@
           excludeAcceptAllOption: false,
           startIn: 'documents',
           types: [{
-            description: '한글 문서 (.hwpx)',
+            description: '한글 문서 (.hwpx, .hwp)',
             accept: {
               'application/hwpx+zip': ['.hwpx'],
-              'application/octet-stream': ['.hwpx'],
+              'application/x-hwp': ['.hwp'],
+              'application/octet-stream': ['.hwpx', '.hwp'],
             },
           }],
         });
@@ -628,21 +631,31 @@
     ui.fileInput.click();
   }
 
-  /* ---------------- opening a file ---------------- */
+  /* ---------------- opening a file ----------------
+     .hwpx 는 ZIP+XML 그대로, 구형 .hwp 는 hwp-import.js 가 브라우저 안에서 HWPX 구조로
+     바꿔 준다. 둘 다 이후에는 같은 조판·보기·편집·저장 경로를 그대로 탄다. */
   async function openFile(file, opts) {
     if (!file) return false;
     if (typeof JSZip === 'undefined') {
       toast('JSZip 라이브러리를 불러오지 못했습니다. 네트워크 연결을 확인해 주세요.', true);
       return false;
     }
-    if (!/\.hwpx$/i.test(file.name)) {
-      toast('지원하지 않는 파일입니다. .hwpx 파일을 선택해 주세요.', true);
+    const isHwp = /\.hwp$/i.test(file.name);
+    if (!isHwp && !/\.hwpx$/i.test(file.name)) {
+      toast('지원하지 않는 파일입니다. .hwpx 또는 .hwp 파일을 선택해 주세요.', true);
       return false;
     }
     ui.fileStatus.textContent = '여는 중…';
     try {
       const buffer = await file.arrayBuffer();
-      const zip = await JSZip.loadAsync(buffer);
+      let zip;
+      if (isHwp) {
+        const importer = window.HwpImport;
+        if (!importer) throw new Error('HWP 변환 모듈을 불러오지 못했습니다. 페이지를 새로고침해 주세요.');
+        zip = await importer.toZip(buffer);
+      } else {
+        zip = await JSZip.loadAsync(buffer);
+      }
       const paths = await findSectionPaths(zip);
       if (!paths.length) throw new Error('본문(section) XML을 찾지 못했습니다. HWPX 파일인지 확인해 주세요.');
 
@@ -666,6 +679,7 @@
       state.zip = zip;
       state.sections = sections;
       state.fileName = file.name;
+      state.isHwp = isHwp;
       state.dirtyNodes = new Set();
       state.nodeMap = new WeakMap();
       state.mode = 'read';
@@ -694,6 +708,7 @@
         });
       }
       [ui.openBtn, ui.saveBtn, ui.modeToggle].forEach((b) => { b.disabled = false; });
+      if (ui.editDock) ui.editDock.hidden = false;
       ui.docMeter.hidden = false;
       state.userScale = 1;
       applyUserScale();
@@ -701,6 +716,7 @@
       /* 다음에 열 때 그대로 되살아나도록 브라우저 안에 남긴다 (실패해도 앱은 그대로) */
       saveLastDoc(file.name, buffer);
       if (opts && opts.restored) toast(`마지막에 보던 문서를 다시 열었습니다 · ${file.name}`);
+      else if (isHwp) toast(`${file.name} · 한글(.hwp) 문서를 열었습니다${sections.length > 1 ? ` (본문 ${sections.length})` : ''}`);
       else toast(`${file.name} · ${sections.length}개 본문을 열었습니다`);
       resetDocScroll();
       return true;
@@ -1205,6 +1221,10 @@
       ui.fitBtn.hidden = !state.zip || !!(ui.replacePanel && !ui.replacePanel.hidden);
       /* 지금 배율이 100%(화면 폭에 꽉 참)가 아니면 눌러 되돌리라는 표시 */
       ui.fitBtn.classList.toggle('off', Math.abs(s - 1) > 0.001);
+    }
+    if (ui.editDock) {
+      /* 편집 단추도 같은 이유로 찾아바꾸기 판이 열려 있는 동안은 걷는다 */
+      ui.editDock.hidden = !state.zip || !!(ui.replacePanel && !ui.replacePanel.hidden);
     }
   }
 
@@ -2560,10 +2580,15 @@
     commitActive();
     state.mode = mode;
     const editing = mode === 'edit';
-    ui.modeToggle.textContent = editing ? '읽기' : '편집';
+    /* 단추는 지금 상태를 이름으로 보여 준다: 읽기일 때 '편집', 편집 중에는 파란 '편집 중'. */
+    if (ui.modeLabel) ui.modeLabel.textContent = editing ? '편집 중' : '편집';
     ui.modeToggle.dataset.mode = editing ? 'read' : 'edit';
     ui.modeToggle.classList.toggle('on', editing);
     ui.modeToggle.setAttribute('aria-pressed', String(editing));
+    ui.modeToggle.setAttribute('aria-label', editing ? '편집 중 · 누르면 읽기로' : '편집');
+    ui.modeToggle.title = editing
+      ? '편집 중 · 누르면 읽기로 돌아갑니다'
+      : '본문·표를 고치는 편집 모드로';
     ui.replaceBtn.hidden = !editing;
     ui.replaceBtn.disabled = !(state.zip && editing);
     if (!editing) ui.replacePanel.hidden = true;
@@ -2707,7 +2732,7 @@
 
   /* ---------------- saving ---------------- */
   function baseName(name) {
-    return name.replace(/\.hwpx$/i, '');
+    return name.replace(/\.hwpx?$/i, '');
   }
 
   function downloadBlob(blob, filename) {
@@ -2749,10 +2774,17 @@
       }
 
       const blob = await out.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: MIMETYPE });
-      downloadBlob(blob, baseName(state.fileName) + '_수정.hwpx');
-      /* 고친 문서를 다시 열어도 그대로 남도록 저장본으로 마지막 문서를 갱신한다 */
-      try { saveLastDoc(state.fileName, await blob.arrayBuffer()); } catch (err) { /* 지난 문서를 그대로 둔다 */ }
-      toast(`저장 완료 · ${baseName(state.fileName)}_수정.hwpx`);
+      /* 구형 .hwp 로 열었으면 브라우저에서 만들 수 있는 형식인 .hwpx 로 저장한다 */
+      const outName = state.isHwp ? baseName(state.fileName) + '.hwpx' : baseName(state.fileName) + '_수정.hwpx';
+      downloadBlob(blob, outName);
+      if (state.isHwp) {
+        /* 저장본을 다음에 열어도 그대로 남도록 저장본으로 마지막 문서를 갱신한다 */
+        try { saveLastDoc(outName, await blob.arrayBuffer()); } catch (err) { /* 지난 문서를 그대로 둔다 */ }
+        toast(`저장 완료 · ${outName} (한글 .hwp 문서는 .hwpx 로 저장됩니다)`);
+      } else {
+        try { saveLastDoc(state.fileName, await blob.arrayBuffer()); } catch (err) { /* 지난 문서를 그대로 둔다 */ }
+        toast(`저장 완료 · ${outName}`);
+      }
     } catch (err) {
       console.error(err);
       toast('저장에 실패했습니다: ' + (err && err.message ? err.message : err), true);
@@ -3035,7 +3067,7 @@
       e.preventDefault();
       dragDepth = 0;
       ui.dropOverlay.hidden = true;
-      const file = Array.from(e.dataTransfer.files).find((f) => /\.hwpx$/i.test(f.name)) || e.dataTransfer.files[0];
+      const file = Array.from(e.dataTransfer.files).find((f) => /\.hwpx?$/i.test(f.name)) || e.dataTransfer.files[0];
       openFile(file);
     });
   }

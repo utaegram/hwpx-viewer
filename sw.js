@@ -1,7 +1,7 @@
-/* HWPX 뷰어 서비스 워커 — 앱 셸 프리캐시 + 네트워크 우선(오프라인 시 캐시 폴백) */
+/* HWPX/HWP 뷰어 서비스 워커 — 앱 셸 프리캐시 + 네트워크 우선(오프라인 시 캐시 폴백) */
 'use strict';
 
-const VERSION = '12';
+const VERSION = '13';
 const CACHE = `hwpx-viewer-${VERSION}`;
 const RUNTIME = `hwpx-viewer-runtime-${VERSION}`;
 
@@ -10,6 +10,8 @@ const APP_SHELL = [
   './index.html',
   './style.css',
   './app.js',
+  './hwp-import.js',
+  './lib/pako.min.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
