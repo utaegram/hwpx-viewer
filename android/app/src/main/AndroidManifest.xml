@@ -62,6 +62,15 @@
                 <data android:mimeType="application/haansofthwpx" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/zip" />
+                <!-- 1.2 추가 — 파일 제공자(내 파일·카카오톡·다운로드 등)가 실제로 붙여 보내는 타입들 -->
+                <data android:mimeType="application/vnd.haansoft-hwp" />
+                <data android:mimeType="application/x-hwp+zip" />
+                <data android:mimeType="application/x-hwpx" />
+                <data android:mimeType="binary/octet-stream" />
+                <data android:mimeType="application/x-download" />
+                <data android:mimeType="application/download" />
+                <data android:mimeType="application/force-download" />
+                <data android:mimeType="application/unknown" />
             </intent-filter>
 
             <!-- 필터 2 — 확장자(pathPattern) + mimeType="*/*".
@@ -132,6 +141,15 @@
                 <data android:mimeType="application/haansofthwpx" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/zip" />
+                <!-- 1.2 추가 -->
+                <data android:mimeType="application/vnd.haansoft-hwp" />
+                <data android:mimeType="application/x-hwp+zip" />
+                <data android:mimeType="application/x-hwpx" />
+                <data android:mimeType="binary/octet-stream" />
+                <data android:mimeType="application/x-download" />
+                <data android:mimeType="application/download" />
+                <data android:mimeType="application/force-download" />
+                <data android:mimeType="application/unknown" />
             </intent-filter>
 
             <intent-filter>
@@ -148,6 +166,15 @@
                 <data android:mimeType="application/haansofthwpx" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/zip" />
+                <!-- 1.2 추가 -->
+                <data android:mimeType="application/vnd.haansoft-hwp" />
+                <data android:mimeType="application/x-hwp+zip" />
+                <data android:mimeType="application/x-hwpx" />
+                <data android:mimeType="binary/octet-stream" />
+                <data android:mimeType="application/x-download" />
+                <data android:mimeType="application/download" />
+                <data android:mimeType="application/force-download" />
+                <data android:mimeType="application/unknown" />
             </intent-filter>
         </activity>
     </application>
